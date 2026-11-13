@@ -885,7 +885,14 @@ main.grid{grid-template-columns:minmax(0,1fr)}
 .tasks-toggle{--t1:#FFAE3D;--t2:#FF5E00}
 .tasks-drawer{width:min(880px,96vw)}
 .tasks-drawer .drawer-body.tasks-body{display:grid;grid-template-columns:286px 1fr;gap:14px;min-height:0;overflow:hidden}
-.task-side{display:flex;flex-direction:column;min-height:0}
+.task-side{display:flex;flex-direction:column;min-height:0;gap:8px}
+/* 14 Nov: select-all + bulk delete toolbar above the inbox */
+.task-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:0 2px}
+.task-tools .task-selall{display:flex;align-items:center;gap:6px;flex:1;min-width:0;font-size:11.5px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+.task-tools .task-selall input{margin:0;accent-color:var(--accent)}
+.task-tools .btn[disabled]{opacity:.45;cursor:default}
+.task-pick{margin:4px 0 0;flex:none;accent-color:var(--accent);cursor:pointer}
+.task-row.picked{border-color:color-mix(in srgb,var(--bad,#e5484d) 55%,var(--glass-border));background:color-mix(in srgb,var(--bad,#e5484d) 8%,var(--surface))}
 .task-list{list-style:none;margin:0;padding:0;overflow:auto;display:flex;flex-direction:column;gap:7px;min-height:0}
 .task-none{padding:10px 4px}
 .task-row{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--glass-border);border-radius:12px;

@@ -232,17 +232,61 @@ const tasksUi = (() => {
     const n = TASKS.filter(unread).length;
     const b = $('tasks-badge'); if (b) { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); }
   }
+  // 14 Nov: multi-select for bulk delete. Ticked ids live here; rows re-render from it.
+  let picked = new Set();
+  function paintTools() {
+    picked = new Set([...picked].filter((id) => TASKS.some((t) => t.id === id)));
+    const n = picked.size, all = $('task-select-all'), cnt = $('task-sel-count'), sel = $('task-delete-selected'), delAll = $('task-delete-all');
+    if (all) { all.checked = n > 0 && n === TASKS.length; all.indeterminate = n > 0 && n < TASKS.length; all.disabled = !TASKS.length; }
+    if (cnt) cnt.textContent = n ? `${n} selected` : 'Select all';
+    if (sel) { sel.disabled = !n; sel.textContent = n ? `Delete selected (${n})` : 'Delete selected'; }
+    if (delAll) delAll.disabled = !TASKS.length;
+  }
   function renderList() {
     listEl.innerHTML = '';
+    paintTools();
     if (!TASKS.length) { listEl.innerHTML = '<li class="task-none hint">No tasks yet — start one and Aria gets to work.</li>'; return; }
     for (const t of TASKS) {
       const li = document.createElement('li');
-      li.className = `task-row${t.id === current ? ' on' : ''}${unread(t) ? ' unread' : ''}${t.status === 'done' ? ' is-done' : ''}`;
-      li.innerHTML = `<span class="task-dot ${esc(t.status)}" title="${esc(STATUS_LABEL[t.status] || t.status)}"></span>`
+      li.className = `task-row${t.id === current ? ' on' : ''}${unread(t) ? ' unread' : ''}${t.status === 'done' ? ' is-done' : ''}${picked.has(t.id) ? ' picked' : ''}`;
+      li.innerHTML = `<input type="checkbox" class="task-pick" title="Select for delete"${picked.has(t.id) ? ' checked' : ''}>`
+        + `<span class="task-dot ${esc(t.status)}" title="${esc(STATUS_LABEL[t.status] || t.status)}"></span>`
         + `<span class="task-row-main"><b>${esc(t.title)}</b><small>${t.last ? `${t.last.role === 'owner' ? 'you: ' : ''}${esc(t.last.text)}` : 'no messages yet'}</small></span>`
         + `<span class="task-row-side"><time>${esc(when(t.updated_at))}</time>${unread(t) ? '<i class="task-new-dot"></i>' : ''}</span>`;
+      const cb = li.querySelector('.task-pick');
+      cb.addEventListener('click', (ev) => ev.stopPropagation());
+      cb.addEventListener('change', () => { if (cb.checked) picked.add(t.id); else picked.delete(t.id); li.classList.toggle('picked', cb.checked); paintTools(); });
       li.addEventListener('click', () => openTask(t.id));
       listEl.appendChild(li);
+    }
+  }
+  /** Remove tasks from the local list right away (the feed's `deleted` events will agree). */
+  function dropLocal(ids) {
+    const gone = new Set(ids);
+    if (!gone.size) return;
+    TASKS = TASKS.filter((t) => !gone.has(t.id));
+    for (const id of gone) { picked.delete(id); delete read[id]; }
+    saveRead();
+    if (current && gone.has(current)) startNew();
+    renderList(); paintBadge();
+  }
+  /** DELETE one task or many; the HTTP reply drives the UI, the feed event is a bonus.
+   *  (Before 14 Nov the row only vanished when the feed delivered `deleted` — after a server
+   *  restart the feed could be mid-reconnect and the click looked like it did nothing.) */
+  async function deleteTasks(ids, label) {
+    ids = [...new Set(ids)].filter(Boolean);
+    if (!ids.length) return;
+    try {
+      const r = ids.length === 1
+        ? await fetch(`/api/tasks/${encodeURIComponent(ids[0])}`, { method: 'DELETE' })
+        : await fetch('/api/tasks', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok && r.status !== 404) throw new Error(body.error || `HTTP ${r.status}`);
+      dropLocal(ids.length === 1 ? ids : (body.deleted || ids));
+      toasts.show({ icon: '🗑', title: label || (ids.length === 1 ? 'Task deleted' : `${ids.length} tasks deleted`), ttl: 3500 });
+      loadTasks(); // re-sync with the server in case anything raced
+    } catch (e2) {
+      toasts.show({ icon: '⚠️', title: 'Could not delete', body: e2.message, ttl: 6000 });
     }
   }
   function paintHead() {
@@ -351,7 +395,25 @@ const tasksUi = (() => {
   $('task-new').addEventListener('click', startNew);
   $('task-form').addEventListener('submit', (e) => { e.preventDefault(); const t = input.value.trim(); if (!t) return; input.value = ''; sendMsg(t); });
   $('task-done').addEventListener('click', () => { if (!current) return; const t = TASKS.find((x) => x.id === current); fetch(`/api/tasks/${encodeURIComponent(current)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: t?.status === 'done' ? 'waiting' : 'done' }) }); });
-  $('task-delete').addEventListener('click', () => { if (!current) return; if (!confirm('Delete this task and its whole thread?')) return; fetch(`/api/tasks/${encodeURIComponent(current)}`, { method: 'DELETE' }); });
+  $('task-delete').addEventListener('click', () => { if (!current) return; if (!confirm('Delete this task and its whole thread?')) return; deleteTasks([current]); });
+  $('task-select-all')?.addEventListener('change', (ev) => { picked = ev.target.checked ? new Set(TASKS.map((t) => t.id)) : new Set(); renderList(); });
+  $('task-delete-selected')?.addEventListener('click', () => {
+    const ids = [...picked]; if (!ids.length) return;
+    if (!confirm(`Delete ${ids.length === 1 ? 'this task' : `these ${ids.length} tasks`} and their threads?`)) return;
+    deleteTasks(ids);
+  });
+  $('task-delete-all')?.addEventListener('click', async () => {
+    if (!TASKS.length) return;
+    if (!confirm(`Delete ALL ${TASKS.length} tasks and their threads? This cannot be undone.`)) return;
+    try {
+      const r = await fetch('/api/tasks', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+      dropLocal(TASKS.map((t) => t.id));
+      toasts.show({ icon: '🗑', title: `${(body.deleted || []).length} tasks deleted`, ttl: 3500 });
+      loadTasks();
+    } catch (e2) { toasts.show({ icon: '⚠️', title: 'Could not delete', body: e2.message, ttl: 6000 }); }
+  });
   loadTasks(); // badge is honest from boot, before the drawer is ever opened
   return { handle };
 })();

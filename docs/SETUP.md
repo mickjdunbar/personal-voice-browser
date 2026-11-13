@@ -92,8 +92,9 @@ node scripts/route-number.mjs --number 61xxxxxxxxx
 ```
 
 Open **http://localhost:3005**. That page is the Personal Voice Browser: the live browser
-view, the transcript, who on the team has the floor, the pins, the Tasks drawer and the
-Harness tab (SOPs, knowledge, memory, talk settings). You can type to it straight away.
+view, the transcript, who on the team has the floor, the pins, and three edge tabs: **Async**
+(tasks — the channel that runs beside the call), **Live** (the real-time text channel, same thread
+as the voice) and **Harness** (SOPs, knowledge, memory, talk settings). You can type to it straight away.
 
 Now **ring the number**. Aria answers. Try, in one call:
 

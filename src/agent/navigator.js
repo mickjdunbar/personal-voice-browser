@@ -109,6 +109,8 @@ const CREATE_TASK_TOOL = { type: 'function', function: { name: 'create_task', de
 // as SVG. Both land in the thread as an image message (and go to the owner's phone on WhatsApp).
 // Only offered on task sessions — a live call has no thread to attach to.
 const SHARE_SCREENSHOT_TOOL = { type: 'function', function: { name: 'share_screenshot', description: 'Attach a screenshot of the page your browser is on RIGHT NOW to this task thread, so the owner SEES it. Use it whenever a picture beats words: a chart, a map, a product, a seat plan, a table of prices, a confusing page. Navigate to what you want to show FIRST, then call this, then refer to the image in your written reply.', parameters: { type: 'object', properties: { caption: { type: 'string', description: 'One short line saying what the image shows, e.g. "The official Futurity schedule page".' } } } } };
+// 14 Nov: chart a business's phone menu. Background job — one call per branch, result = a diagram in the task thread.
+const MAP_IVR_TOOL = { type: 'function', function: { name: 'map_ivr', description: 'MAP a business\'s automated phone menu (IVR): rings the number, listens to the whole "press 1 for…" prompt, then rings again for every option (pressing the keys in turn, breadth-first) until the menu tree is charted, and posts a diagram of it plus every prompt transcript into the owner\'s task thread. Use ONLY when the owner explicitly asks to map / chart / explore / document a phone menu or its DTMF options. It is a background job that takes several minutes and many calls: this tool returns at once; say the map has started and that the diagram will arrive in the thread. Never use it to get an answer from a business — that is phone_someone.', parameters: { type: 'object', properties: { to: { type: 'string', description: 'The number to map, E.164 (+61131334). An Australian 13/1300/1800 number keeps its digits: 13 13 34 → +61131334.' }, name: { type: 'string', description: 'The business name, e.g. HCF.' }, max_depth: { type: 'integer', description: 'How many menu levels deep to go (1-5). Default 3.' }, max_calls: { type: 'integer', description: 'Call budget (1-40). Default 20. Each branch costs one call.' } }, required: ['to'] } } };
 const SHARE_SKETCH_TOOL = { type: 'function', function: { name: 'share_sketch', description: 'DRAW something for the owner: attach a diagram you author as SVG to this task thread (it renders as an image). Use it for layouts, step diagrams, timelines, simple maps, visual comparisons — anything clearer drawn than written. Author clean, SELF-CONTAINED SVG: a viewBox (e.g. 0 0 800 500), a background rect first, readable text (16px+), good contrast, no external references and no scripts.', parameters: { type: 'object', properties: { svg: { type: 'string', description: 'The complete <svg …>…</svg> markup, self-contained.' }, caption: { type: 'string', description: 'One short line saying what the sketch shows.' } }, required: ['svg'] } } };
 // A request that an external MCP service (email, chat, SMS, calendar) likely handles — when a server
 // is connected, these go to the deep lane (the capable model + tool loop) rather than being answered
@@ -445,7 +447,7 @@ export class Navigator {
     // external chatbot. Browsing tools only on the deep lane.
     const special = [];
     if (getContext(this.sessionId).remember) special.push(REMEMBER_TOOL);
-    if (config.phoneAsk.enabled) special.push(PHONE_TOOL);
+    if (config.phoneAsk.enabled) special.push(PHONE_TOOL, MAP_IVR_TOOL);
     if (!this.metadata.task) special.push(CREATE_TASK_TOOL); // no tasks spawning tasks
     else special.push(SHARE_SCREENSHOT_TOOL, SHARE_SKETCH_TOOL); // task threads can carry images
     const botTools = chatBotTools();
@@ -552,7 +554,7 @@ export class Navigator {
         let result;
         this.emit('tool.call', { turn: this.turns, name: c.name, args: c.args });
         // Special non-browser tools: note a caller fact, message an external chatbot, or phone a person.
-        if (c.name === 'remember_about_caller' || c.name === 'ask_chatbot' || c.name === 'phone_someone' || c.name === 'create_task' || c.name === 'share_screenshot' || c.name === 'share_sketch' || c.name === 'list_mcp_tools' || c.name === 'use_mcp_tool') {
+        if (c.name === 'remember_about_caller' || c.name === 'ask_chatbot' || c.name === 'phone_someone' || c.name === 'map_ivr' || c.name === 'create_task' || c.name === 'share_screenshot' || c.name === 'share_sketch' || c.name === 'list_mcp_tools' || c.name === 'use_mcp_tool') {
           if (c.name === 'ask_chatbot' && Date.now() - lastSpokenAt > 1200) { writer.write(pickFiller('chatbot')); lastSpokenAt = Date.now(); }
           // Confirm the call BEFORE it is placed — but only if the model didn't already narrate it
           // (it usually says "I'm ringing X now" in this same message). A second hardcoded line on top
@@ -712,6 +714,13 @@ export class Navigator {
         this.emit('task.media', { task: taskId, kind: 'screenshot', url: r.url });
         return { ok: true, note: 'Screenshot attached to the thread. Refer to it in your written reply — the owner can see it.' };
       } catch (err) { return { error: `screenshot failed: ${err.message}` }; }
+    }
+    if (name === 'map_ivr') {
+      const { startIvrMap } = await import('../phone/ivrmap.js'); // cycle-safe, like create_task
+      const r = await startIvrMap({ to: args?.to, name: args?.name, maxDepth: args?.max_depth, maxCalls: args?.max_calls, taskId: this.metadata.task || null, via: this.channel === 'voice' ? 'call' : this.channel || 'console' });
+      if (r.error) return r;
+      this.emit('ivrmap.started', { map: r.map.id, to: r.map.to, task: r.map.task });
+      return { ok: true, map_id: r.map.id, task_id: r.map.task, dialing: r.map.dialed, redirected: r.map.redirected, note: `The map has started in the background (up to ${r.map.max_depth} levels, ${r.map.max_calls} calls). Progress and the finished diagram land in ${this.metadata.task ? 'THIS thread' : "the owner's Async task channel"} automatically — tell the owner it is underway and will take several minutes; do not wait for it or call this again.` };
     }
     if (name === 'phone_someone') {
       const who = args?.name || 'them', question = args?.question || '';

@@ -87,7 +87,7 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
       </div>
     </div>
     <div class="card">
-      <h2>Text <span class="hint">same team, same tab, same history</span></h2>
+      <h2>Live <span class="hint">the real-time channel · same team, same thread as the call, same history</span></h2>
       <form id="text-form">
         <input id="text" placeholder="e.g. open uber eats and find me a pizza" autocomplete="off">
         <button class="btn primary" type="submit">Send</button>
@@ -131,13 +131,16 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
      handler keeps working while the whole widget can be dragged anywhere (position remembered). -->
 <div id="orb-float" class="orb-float"></div>
 
-<!-- RIGHT-EDGE TABS: each opens a drawer. Stacked top→bottom: Tasks, Text, Harness (= This turn · Talk Settings · Knowledge · Activity behind one tab). -->
+<!-- RIGHT-EDGE TABS: each opens a drawer. Stacked top→bottom: Async (tasks — the channel that runs
+     BESIDE the call), Live (text — the real-time channel, same thread as the voice), Harness
+     (= This turn · Talk Settings · Knowledge · Activity behind one tab).
+     14 Nov: labels renamed Tasks→Async and Text→Live; ids/classes unchanged so app.js keeps working. -->
 <div class="edge-tabs">
-  <button id="tasks-toggle" class="drawer-toggle tasks-toggle" title="Long-running tasks — message Aria, she works in the background and replies here" aria-expanded="false">
-    <span class="dt-label">Tasks</span><span id="tasks-badge" class="dt-badge" hidden>0</span>
+  <button id="tasks-toggle" class="drawer-toggle tasks-toggle" title="Async — tasks that run beside the call: message Aria, she works in the background and replies here" aria-expanded="false">
+    <span class="dt-label">Async</span><span id="tasks-badge" class="dt-badge" hidden>0</span>
   </button>
-  <button id="text-toggle" class="drawer-toggle text-toggle" title="Type to the team — the text console and transcript" aria-expanded="false">
-    <span class="dt-label">Text</span><span id="text-badge" class="dt-badge" hidden>0</span>
+  <button id="text-toggle" class="drawer-toggle text-toggle" title="Live — the real-time channel: type to the team in the same thread as the call, with the transcript" aria-expanded="false">
+    <span class="dt-label">Live</span><span id="text-badge" class="dt-badge" hidden>0</span>
   </button>
   <!-- 11 Nov: This turn / Talk Settings / Knowledge / Activity live behind ONE "Harness" tab.
        Their original toggles stay in the DOM (hidden) so every drawer's JS keeps working; the
@@ -208,12 +211,18 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
 <div id="tasks-backdrop" class="drawer-backdrop"></div>
 <aside id="tasks-drawer" class="drawer tasks-drawer" aria-hidden="true">
   <div class="drawer-head">
-    <h2>Tasks <span class="hint">message Aria · she works in the background · replies land here</span></h2>
+    <h2>Async <span class="hint">runs beside the call · message Aria · she works in the background · replies land here</span></h2>
     <button id="task-new" class="btn small-btn" title="Start a new task">＋ New task</button>
     <button id="tasks-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
   </div>
   <div class="drawer-body tasks-body">
     <div class="task-side">
+      <!-- 14 Nov: tick rows to bulk-delete; "Delete all" clears the inbox. Both confirm first. -->
+      <div class="task-tools">
+        <label class="task-selall" title="Select every task in the list"><input type="checkbox" id="task-select-all"><span id="task-sel-count">Select all</span></label>
+        <button id="task-delete-selected" class="btn ghost small-btn" title="Delete the ticked tasks and their threads" disabled>Delete selected</button>
+        <button id="task-delete-all" class="btn ghost small-btn" title="Delete every task and thread">Delete all</button>
+      </div>
       <ul id="task-list" class="task-list"><li class="task-none hint">No tasks yet — start one and Aria gets to work.</li></ul>
     </div>
     <div class="task-main">
@@ -240,7 +249,7 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
 <div id="text-backdrop" class="drawer-backdrop"></div>
 <aside id="text-drawer" class="drawer text-drawer" aria-hidden="true">
   <div class="drawer-head">
-    <h2>Text <span class="hint">same team, same tab, same history</span></h2>
+    <h2>Live <span class="hint">the real-time channel · same team, same thread as the call, same history</span></h2>
     <button id="text-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
   </div>
   <div class="drawer-body" id="text-drawer-body"></div>

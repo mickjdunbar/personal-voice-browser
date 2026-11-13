@@ -23,6 +23,7 @@ import { bus, topic } from '../bus.js';
 import { renderContext } from '../context.js';
 import { emitEvent } from '../events.js';
 import { configVerb, sayVerb, hangupVerb, s2sVerb, agentVerb, askS2sVerb, recognizer, BROWSE_TOOL_NAME, TASK_TOOL_NAME, ASK_FINISH_TOOL, ASK_OWNER_TOOL, ASK_REPORT_TOOL, RELAY_TOOL } from './verbs.js';
+import { runIvrMapCall, ivrMapLegEnded } from '../phone/ivrmap.js'; // 14 Nov: IVR mapper legs (mode 'ivrmap')
 import { getAsk, resolveAsk, pendingAsksFor } from '../phone/ask.js';
 import { costOfRealtimeUsage } from '../llm/pricing.js';
 import { completeText } from '../llm/client.js';
@@ -243,7 +244,7 @@ export function createConductor({ path = '/ws' } = {}) {
 async function onSession(session) {
   const { callSid, from, to, direction } = session;
   const tag = (session.data?.customerData && typeof session.data.customerData === 'object') ? session.data.customerData : {};
-  const mode = tag.mode === 'cascaded' ? 'cascaded' : tag.mode === 'ask' ? 'ask' : 'hybrid';
+  const mode = tag.mode === 'cascaded' ? 'cascaded' : tag.mode === 'ask' ? 'ask' : tag.mode === 'ivrmap' ? 'ivrmap' : 'hybrid';
   // Which console session owns this call? A WebRTC softphone call carries an `X-Session` INVITE header
   // (jambonz surfaces custom X-* headers here) = the device that dialed — deterministic. Fall back to
   // customerData (REST-created ask calls), then the side-channel claim, then 'main'.
@@ -258,7 +259,7 @@ async function onSession(session) {
   // An ASK call (outbound side-call to a person/IVR) gets its OWN session id: if it shared the
   // owner's, its call.start/call.end and transcript events would corrupt the owner console's
   // in-call state (cost baseline, orb, captions) and collide in session-keyed lookups.
-  const ctl = { callSid, from, to, direction, session, sessionId: mode === 'ask' ? `ask:${callSid}` : ownerSession, ownerSession, mode, lane: null, swaps: 0, startedAt: new Date().toISOString(), startedMs: Date.now(), events: [], transcript: [], swapping: false };
+  const ctl = { callSid, from, to, direction, session, sessionId: mode === 'ask' ? `ask:${callSid}` : mode === 'ivrmap' ? `ivrmap:${callSid}` : ownerSession, ownerSession, mode, lane: null, swaps: 0, startedAt: new Date().toISOString(), startedMs: Date.now(), events: [], transcript: [], swapping: false };
   calls.set(callSid, ctl);
   // ngrok (and some LBs) silently drop an IDLE control websocket — 10 Nov: two mid-call "socket
   // closed" drops, each re-greeting the caller from scratch and orphaning in-flight work. The
@@ -282,6 +283,7 @@ async function onSession(session) {
   getObservability().event(ctl.sessionId, 'call.start', { callSid, from, to, direction, mode: ctl.mode }).catch(() => {});
 
   if (ctl.mode === 'ask') { runAskCall(ctl, tag.askId); return; }
+  if (ctl.mode === 'ivrmap') { runIvrMapCall(ctl, tag); return; } // 14 Nov: menu-mapping leg — listen, press, hang up
 
   if (ctl.mode === 'cascaded') {
     ctl.lane = 'cascaded';
@@ -663,6 +665,7 @@ function emitAskTranscript(ctl, finalOutcome = '') {
 
 function cleanup(ctl, reason = 'closed') {
   if (!calls.has(ctl.callSid)) return;
+  if (ctl.mode === 'ivrmap') ivrMapLegEnded(ctl, reason); // the mapper resolves the node with whatever was heard
   // 13 Nov (take 5): the caller said goodbye while a venue leg was still open, and that leg sat
   // in-progress on jambonz afterwards. The owner's call ending ends every ask leg it owns.
   if (ctl.mode !== 'ask') {

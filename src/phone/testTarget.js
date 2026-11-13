@@ -23,6 +23,14 @@ export function setTestTarget(sessionId = 'main', { enabled, number } = {}) {
   return cur;
 }
 
+/** 14 Nov: drop a session's own override so it inherits `main` again. */
+export function clearTestTarget(sessionId) {
+  if (!sessionId || sessionId === 'main') return { error: 'main cannot be cleared — set it instead' };
+  const had = store.delete(sessionId);
+  persist();
+  return { ok: true, cleared: had };
+}
+
 // 12 Nov: the redirect is effectively GLOBAL — a session without its own setting inherits
 // `main`'s. Calls are also placed from task sessions (`task-…`) and worker sub-sessions
 // (`main#w-1`), and those used to bypass the console switch entirely.

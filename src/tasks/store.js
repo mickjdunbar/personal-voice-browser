@@ -177,6 +177,15 @@ export function deleteTask(id) {
   return { ok: true };
 }
 
+/** 14 Nov: bulk delete for the drawer's "Delete selected" / "Delete all". `ids` null = every task.
+ *  One `deleted` event per task so every open console (and the per-task cleanup) stays exact. */
+export function deleteTasks(ids = null) {
+  const want = ids === null ? [...tasks.keys()] : [...new Set((Array.isArray(ids) ? ids : []).map(String))];
+  const deleted = [];
+  for (const id of want) if (tasks.has(id) && deleteTask(id).ok) deleted.push(id);
+  return { ok: true, deleted, remaining: tasks.size };
+}
+
 /** End the task's navigator AND close its browser tab (endSession alone leaks the tab). */
 function closeSession(id, reason) {
   endSession(sessionOf(id), reason).catch(() => {});

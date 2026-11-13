@@ -24,3 +24,5 @@ knowledge/KB-family.md
 knowledge/caller-preferences.md
 __pycache__/
 *.bak
+.ivr-maps/
+public/ivr-maps/

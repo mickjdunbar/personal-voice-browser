@@ -24,14 +24,15 @@ import { createHarnessServer } from './harness/server.js';
 import { createConductor, liveConductorCalls, recentConductorCalls, injectCallerText, registerHarnessInjector, setPendingIntent, notifyControl, hangupSession, claimNextCall } from './conductor/app.js';
 import { setContext, getContext, identify } from './context.js';
 import { onProfileChange } from './profile.js';
-import { setTestTarget, getTestTarget } from './phone/testTarget.js';
+import { setTestTarget, getTestTarget, clearTestTarget } from './phone/testTarget.js';
+import { startIvrMap, listIvrMaps, getIvrMap, stopIvrMap } from './phone/ivrmap.js'; // 14 Nov: IVR mapper
 import { listBots, publicBots, setBots } from './chat/bots.js';
 import { providerMeta } from './chat/providers.js';
 import { listServers, publicServers, setServers, presetMeta, findServer } from './mcp/servers.js';
 import { probeServer, listToolsFor } from './mcp/client.js';
 import { placeCall, registerApplications, jambonz } from './jambonzApi.js';
 import { getSession, peekSession, endSession, listSessions } from './agent/sessions.js';
-import { listTasks, getTask, createTask, ownerMessage, setStatus, deleteTask, postNote } from './tasks/store.js';
+import { listTasks, getTask, createTask, ownerMessage, setStatus, deleteTask, deleteTasks, postNote } from './tasks/store.js';
 import { initTransports, handleInboundMessage } from './tasks/transports.js';
 import { initMemorist } from './agent/memorist.js';
 import { initScreens, listScreens, clearScreens } from './screens.js';
@@ -215,9 +216,40 @@ const server = http.createServer(async (req, res) => {
       lastRecap = { at: Date.now(), url: recapUrl, task: target.id, seq: target.seq };
       return json(res, 201, { ok: true, url: recapUrl, task: target.id, seq: target.seq });
     }
+    // 14 Nov: IVR mapper — chart a business's phone menu by DTMF (progress + result land in an Async task).
+    //   POST /api/ivr/map {to, name?, max_depth?, max_calls?, task_id?}  → 202 {map}
+    //   GET  /api/ivr/maps · GET /api/ivr/maps/:id · POST /api/ivr/maps/:id/stop
+    if (p === '/api/ivr/map' && req.method === 'POST') {
+      const b = await readJson(req);
+      const r = await startIvrMap({ to: b.to, name: b.name, maxDepth: b.max_depth, maxCalls: b.max_calls, taskId: b.task_id || null, via: 'console' });
+      return json(res, r.error ? 400 : 202, r);
+    }
+    if (p === '/api/ivr/maps' && req.method === 'GET') return json(res, 200, { maps: listIvrMaps() });
+    const im = /^\/api\/ivr\/maps\/([^/]+)(?:\/(stop))?$/.exec(p);
+    if (im) {
+      const id = decodeURIComponent(im[1]);
+      if (!im[2] && req.method === 'GET') { const m = getIvrMap(id); return json(res, m ? 200 : 404, m || { error: 'no such map' }); }
+      if (im[2] === 'stop' && req.method === 'POST') { const r = stopIvrMap(id); return json(res, r.error ? 404 : 200, r); }
+    }
+    // 14 Nov: the test-dial redirect over HTTP (same power as the console switch on the WebSocket):
+    //   GET /api/test-dial?session=… · POST {session?, enabled, number} · DELETE ?session=… (drop a
+    //   session's override so it inherits `main` again; `main` itself can only be set).
+    if (p === '/api/test-dial') {
+      const s = url.searchParams.get('session') || 'main';
+      if (req.method === 'GET') return json(res, 200, { session: s, ...getTestTarget(s) });
+      if (req.method === 'POST') { const b = await readJson(req); const sid = String(b.session || 'main'); const t = setTestTarget(sid, { enabled: b.enabled, number: b.number }); logger.info(`test-dial ${sid}: ${t.enabled ? 'ON -> ' + t.number.replace(/\d(?=\d{3})/g, '•') : 'off'} (via API)`); return json(res, 200, { session: sid, ...t }); }
+      if (req.method === 'DELETE') { const r = clearTestTarget(s); logger.info(`test-dial ${s}: override cleared (via API)`); return json(res, r.error ? 400 : 200, r); }
+    }
     // Tasks: the async text channel (the console's Tasks drawer; transport-agnostic server-side).
     if (p === '/api/tasks' && req.method === 'GET') return json(res, 200, { tasks: listTasks() });
     if (p === '/api/tasks' && req.method === 'POST') { const b = await readJson(req); if (!String(b.text || b.title || '').trim()) return json(res, 400, { error: 'text or title required' }); return json(res, 201, { task: createTask(b) }); }
+    // Bulk delete (14 Nov): body {ids:[…]} deletes those, {all:true} deletes every task. Nothing implicit.
+    if (p === '/api/tasks' && req.method === 'DELETE') {
+      const b = await readJson(req);
+      if (b.all === true) return json(res, 200, deleteTasks(null));
+      if (!Array.isArray(b.ids) || !b.ids.length) return json(res, 400, { error: 'ids[] or all:true required' });
+      return json(res, 200, deleteTasks(b.ids));
+    }
     const tm = /^\/api\/tasks\/([^/]+)(?:\/(message|status))?$/.exec(p);
     if (tm) {
       const id = decodeURIComponent(tm[1]);
