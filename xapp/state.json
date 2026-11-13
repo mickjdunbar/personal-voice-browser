@@ -1,0 +1,12 @@
+{
+  "bridgeFlow": {
+    "id": "6af0fbab4ce276ec33e80458",
+    "ref": "9b441722-3a54-47b8-8ac3-d5bfcd5cf125",
+    "start": "6af0fbab4ce276ec33e80464",
+    "startRef": "60e9ef47-9411-4f52-8027-9e81e645c398"
+  },
+  "bridgeEndpoint": {
+    "id": "6af0fbbca50be8323c17836e",
+    "url": "https://cognigy-endpoint-na1.nicecxone.com/1eeba08ae3bd022133fd5207716e693e1a1f643182fe99d887bdbdb14b140bd5"
+  }
+}

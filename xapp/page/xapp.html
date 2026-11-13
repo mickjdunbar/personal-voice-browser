@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<!--
+  PVB xApp — generic spec-driven page (xApp: Show HTML, mode "full").
+  Data in:  context.xapp.spec = { type: "map_pin", title, prompt, center:{lat,lng}, zoom, requireAddress? }
+            or { type: "map_view", title, prompt, pin:{lat,lng,address?}, zoom }  — read-only shared
+            map: shows the pin, no submit, safe to SMS to OTHER people (an input map_pin link is a
+            one-time session that shows a thank-you screen once used).
+            (every future xApp type is a new value of spec.type — a payload, not a new page)
+  Data out: POST "xapp opened" to the REST endpoint on load (out-of-band: an SDK.submit would
+            make the shell tear this page down and show the intermediate screen)
+            SDK.submit({ kind: "result", lat, lng, address })  on confirm — the flow answers it
+            by rendering the static done page, so the teardown lands somewhere nice.
+  __PVB_XAPP_ENDPOINT__ is replaced by build.py with the bridge REST endpoint URL.
+  NOTE the whole file is CognigyScript-interpolated: never write a literal "{{" except the
+  injection lines below.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Personal Voice Browser</title>
+<script src="/sdk/app-page-sdk.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root { --bg:#0e1017; --panel:#171a24; --line:#2a2f3f; --ink:#f2f4fa; --muted:#9aa3b8; --accent:#5C59E8; --accent2:#F4603A; --ok:#22c55e; --font:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  * { box-sizing:border-box; }
+  html,body { height:100%; }
+  body { margin:0; font:16px/1.45 var(--font); background:var(--bg); color:var(--ink); display:flex; flex-direction:column; }
+  header { padding:14px 16px 10px; background:linear-gradient(135deg,#171a24,#1d2130); border-bottom:2px solid var(--accent); }
+  header h1 { margin:0; font-size:18px; letter-spacing:.01em; }
+  header p { margin:4px 0 0; font-size:14px; color:var(--muted); }
+  #map { flex:1; min-height:0; }
+  .sheet { padding:12px 16px calc(14px + env(safe-area-inset-bottom)); background:var(--panel); border-top:1px solid var(--line); }
+  .addr { min-height:38px; display:flex; align-items:center; gap:8px; font-size:14px; color:var(--muted); }
+  .addr.ready { color:var(--ink); font-weight:600; }
+  .addr .pin { font-size:18px; }
+  button.go { width:100%; margin-top:8px; padding:15px; font:inherit; font-weight:800; font-size:17px; color:#fff; background:linear-gradient(135deg,var(--accent),#7a5cf0); border:0; border-radius:14px; cursor:pointer; }
+  button.go:disabled { opacity:.45; }
+  .done { flex:1; display:grid; place-items:center; text-align:center; padding:24px; }
+  .done .tick { font-size:56px; margin-bottom:10px; }
+  .done h2 { margin:0 0 6px; } .done p { color:var(--muted); margin:0; }
+  .err { padding:24px; text-align:center; color:var(--muted); }
+  .leaflet-container { background:#101320; }
+</style>
+</head>
+<body>
+<header><h1 id="title">One moment…</h1><p id="prompt"></p></header>
+<div id="stage" style="display:flex;flex-direction:column;flex:1;min-height:0">
+  <div id="map"></div>
+  <div class="sheet">
+    <div class="addr" id="addr"><span class="pin">📍</span><span id="addr-text">Tap the map to drop a pin</span></div>
+    <button class="go" id="go" disabled>Confirm this spot</button>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+  var injected = `{{ context.xapp && context.xapp.spec ? encodeURIComponent(JSON.stringify(context.xapp.spec)) : "" }}`;
+  var SPEC = {};
+  try { if (injected) SPEC = JSON.parse(decodeURIComponent(injected)); } catch (e) { SPEC = {}; }
+  var EP = "__PVB_XAPP_ENDPOINT__";
+  var SID = `{{input.sessionId}}`;
+  var UID = `{{input.userId}}`;
+
+  function submit(payload, cb) {
+    var tries = 0;
+    var t = setInterval(function () {
+      tries += 1;
+      if (window.SDK && typeof SDK.submit === "function") {
+        try { SDK.submit(payload); clearInterval(t); if (cb) cb(true); return; } catch (e) { /* retry */ }
+      }
+      if (tries > 20) { clearInterval(t); if (cb) cb(false); }
+    }, 400);
+  }
+
+  function fail(msg) {
+    document.getElementById("stage").innerHTML = '<div class="err">' + msg + "</div>";
+    document.getElementById("title").textContent = "Personal Voice Browser";
+  }
+
+  if (!SPEC.type) { fail("This link has expired or no task was attached. You can go back to the call."); return; }
+
+  document.getElementById("title").textContent = SPEC.title || "Show me where";
+  document.getElementById("prompt").textContent = SPEC.prompt || "";
+
+  // ---------- map_view: a read-only pinned map, made for SHARING -------------------
+  // No opened ping (the recipient opening it must not poke the caller's session) and no submit.
+  if (SPEC.type === "map_view") {
+    var p0 = SPEC.pin && isFinite(SPEC.pin.lat) ? SPEC.pin : null;
+    if (!p0) { fail("This shared map has no location attached."); return; }
+    var vmap = L.map("map", { zoomControl: true }).setView([p0.lat, p0.lng], SPEC.zoom || 15);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(vmap);
+    L.marker([p0.lat, p0.lng]).addTo(vmap);
+    var vAddr = document.getElementById("addr"), vText = document.getElementById("addr-text"), vGo = document.getElementById("go");
+    vAddr.classList.add("ready");
+    vText.textContent = p0.address || (p0.lat + ", " + p0.lng);
+    if (!p0.address) {
+      fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + p0.lat + "&lon=" + p0.lng)
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j && j.display_name) vText.textContent = j.display_name; })
+        .catch(function () { /* coordinates stay */ });
+    }
+    vGo.disabled = false;
+    vGo.textContent = "Open in your maps app";
+    vGo.addEventListener("click", function () {
+      window.open("https://www.google.com/maps/search/?api=1&query=" + p0.lat + "," + p0.lng, "_blank");
+    });
+    return;
+  }
+
+  // OPENED ping, out-of-band (fire-and-forget): lets the agent narrate "you've opened it".
+  if (EP.indexOf("http") === 0 && SID) {
+    try {
+      fetch(EP, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: UID, sessionId: SID, text: "xapp opened" }) }).catch(function () {});
+    } catch (e) { /* narration is a nicety, never fatal */ }
+  }
+
+  if (SPEC.type !== "map_pin") { fail("This xApp type (" + String(SPEC.type) + ") is not supported yet."); return; }
+
+  // ---------- map_pin ------------------------------------------------------------
+  var center = SPEC.center && isFinite(SPEC.center.lat) ? [SPEC.center.lat, SPEC.center.lng] : [-27.4698, 153.0251];
+  var map = L.map("map", { zoomControl: true }).setView(center, SPEC.zoom || 13);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; OpenStreetMap'
+  }).addTo(map);
+
+  var marker = null, picked = null, geoTimer = null, geoSeq = 0;
+  var addrEl = document.getElementById("addr"), addrText = document.getElementById("addr-text"), go = document.getElementById("go");
+
+  function setPin(latlng) {
+    picked = { lat: Math.round(latlng.lat * 1e6) / 1e6, lng: Math.round(latlng.lng * 1e6) / 1e6, address: "" };
+    if (!marker) {
+      marker = L.marker(latlng, { draggable: true }).addTo(map);
+      marker.on("dragend", function () { setPin(marker.getLatLng()); });
+    } else marker.setLatLng(latlng);
+    go.disabled = false;
+    addrEl.classList.remove("ready");
+    addrText.textContent = "Looking up the address…";
+    clearTimeout(geoTimer);
+    geoTimer = setTimeout(reverseGeocode, 900); // Nominatim courtesy: debounce the drag
+  }
+
+  function reverseGeocode() {
+    var seq = ++geoSeq, p = picked;
+    fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + p.lat + "&lon=" + p.lng)
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (seq !== geoSeq) return;
+        p.address = (j && j.display_name) || "";
+        addrText.textContent = p.address || (p.lat + ", " + p.lng);
+        addrEl.classList.add("ready");
+      })
+      .catch(function () {
+        if (seq !== geoSeq) return;
+        p.address = "";
+        addrText.textContent = p.lat + ", " + p.lng;
+        addrEl.classList.add("ready");
+      });
+  }
+
+  map.on("click", function (e) { setPin(e.latlng); });
+
+  go.addEventListener("click", function () {
+    if (!picked) return;
+    go.disabled = true;
+    go.textContent = "Sending…";
+    submit({ kind: "result", lat: picked.lat, lng: picked.lng, address: picked.address }, function (ok) {
+      document.getElementById("stage").innerHTML = ok
+        ? '<div class="done"><div class="tick">✅</div><h2>Got it</h2><p>You can go back to the call now.</p></div>'
+        : '<div class="done"><div class="tick">⚠️</div><h2>Could not send</h2><p>Please close and reopen this link.</p></div>';
+    });
+  });
+})();
+</script>
+</body>
+</html>

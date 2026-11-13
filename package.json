@@ -1,0 +1,35 @@
+{
+  "name": "mick-agentic-browser",
+  "version": "0.1.0",
+  "description": "Mick Agentic Browser — browse any website by voice or text. jambonz Agent Studio custom harness (localhost dev) + hybrid speech-to-speech / cascaded conductor + Playwright browser + multimodal WebRTC console.",
+  "type": "module",
+  "main": "src/app.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js",
+    "test": "node --test",
+    "smoke": "node scripts/smoke.mjs",
+    "tunnel": "ngrok http --url=mick.au.ngrok.io 3005",
+    "register": "node scripts/register-app.mjs",
+    "export:kb": "node scripts/export-kb.mjs",
+    "build:audio": "node scripts/make-audio.mjs",
+    "build:vendor": "esbuild node_modules/@jambonz/client-sdk-web/dist/index.mjs --bundle --format=esm --platform=browser --minify --alias:react=./scripts/react-stub.js --outfile=public/vendor/jambonz-client.js",
+    "prestart": "npm run build:vendor",
+    "predev": "npm run build:vendor",
+    "showcase": "node scripts/run-showcase.mjs",
+    "build:arch": "node scripts/build-architecture-pdf.mjs"
+  },
+  "dependencies": {
+    "@jambonz/client-sdk-web": "^0.1.5",
+    "@jambonz/sdk": "^0.12.1",
+    "dotenv": "^16.4.5",
+    "playwright": "^1.64.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

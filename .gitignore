@@ -1,0 +1,26 @@
+node_modules/
+.env
+.profile/
+dist/
+logs/
+*.log
+screenshots/
+.profile-test/
+.kb-cache.json
+.chatbots.json
+profiles/
+public/vendor/
+public/*.apk
+.live-calls.json
+.test-dial.json
+public/recaps/
+# runtime state and personal data — never published
+.mcp-servers.json
+.tasks.json
+.tasks-media/
+memory/
+knowledge/KB-contacts.md
+knowledge/KB-family.md
+knowledge/caller-preferences.md
+__pycache__/
+*.bak

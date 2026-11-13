@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Personal Voice Browser</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesk:opsz,wght@12..96,500;12..96,600;12..96,700&family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="./app.css">
+<script>
+/* Apply the saved theme before first paint so there's no flash. Auto = follow the OS. */
+try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'light') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+</script>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> <span class="brand-col"><span id="brand-name">Personal Voice Browser</span><span id="call-cost" class="call-cost" hidden>call cost $0.0000</span></span> <span class="sub">one call, a team of agents · jambonz custom harness</span></div>
+  <!-- 11 Nov: the status pills (speaker/models/kb/obs/feed) moved into the This-turn drawer;
+       only the controls stay up here. -->
+  <div class="status">
+    <button id="sound" class="btn ghost small-btn" title="Ambient + typing sound to cover the quiet while agents work" aria-pressed="false">Sound off</button>
+    <button id="theme" class="btn ghost small-btn" title="Light / dark / auto" aria-label="Theme">◐ Auto</button>
+    <button id="clear" class="btn ghost small-btn">Clear</button>
+  </div>
+</header>
+
+<main class="grid">
+  <!-- LEFT: the team (orb + call controls) above the text console -->
+  <section class="col left">
+    <div class="team card">
+      <h2>The team <span class="hint">one speaks at a time · all listen and act on what they hear</span></h2>
+      <div class="orb-stage">
+        <div id="team" class="roster"></div>
+        <button type="button" class="assistant-orb" id="assistant-orb" data-state="idle" title="Tap to talk" aria-label="Tap to talk">
+          <span class="orb-glow"></span>
+          <!-- state aura: inward sonar rings when LISTENING, spinning gradient halo when SPEAKING -->
+          <span class="orb-aura" aria-hidden="true"></span>
+          <span class="orb-huey">
+            <svg class="hy" viewBox="0 0 57.03 47.74" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <defs>
+                <!-- the living multicolour body: a slowly ROTATING gradient whose stops also CYCLE
+                     through the Huey palette (CSS animates the stop-colors) — same vibe as the send button -->
+                <linearGradient id="hueyGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop class="hg hg1" offset="0%"/>
+                  <stop class="hg hg2" offset="38%"/>
+                  <stop class="hg hg3" offset="72%"/>
+                  <stop class="hg hg4" offset="100%"/>
+                  <animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="9s" repeatCount="indefinite"/>
+                </linearGradient>
+              </defs>
+              <path class="hy-body" fill-rule="evenodd" d="M6.37,37.1c-.88.04-1.7.21-2.59.02-.8-.18-1.71-.73-2.2-1.22-.35-.43-.66-.77-.98-1.22-.24-.49-.45-1.06-.53-1.62-.14-.98-.07-1.76,0-2.6.27-2.77,1.21-5.36,2.55-7.79.93-1.68,2.06-3,3.39-4.38,1.78-1.85,2.77-4.04,3.76-6.41.64-1.53,1.21-3.1,2.15-4.47.88-1.28,2.06-2.33,3.29-3.29,1.05-.82,2.15-1.6,3.34-2.22C22.24-.02,26.61-.41,30.68.39c1.08.21,3.18.71,4.22,1.08,4.35,1.57,7.31,4.54,8.89,8.88.21.57.64,1.45.96,1.97.19.3.4.63.73.74.38.12.78-.07,1.1-.3.82-.57,1.48-1.36,2.33-1.88.96-.59,2.12-.79,3.25-.79s2.37.24,3.21,1.03c.55.52.88,1.23,1.17,1.93.27.67.5,1.37.5,2.09,0,.43-.09.85-.18,1.27-.29,1.29-.67,2.57-1.32,3.72-1.2,2.13-3.15,3.43-4.58,5.37-.35.48-.81,1.13-1.12,1.63-.29.46-.51.92-.79,1.41-.58,1.03-.4,2.37-.44,3.55,0,.26.04.66.04.92.06,1.99.66,4.06.24,5.83-.17.71-.29,1.3-.55,1.98-.3.77-.55,1.76-1.08,2.39-.98,1.15-2.3,1.94-3.57,2.77-2.91,1.92-6.66,2.06-10.09,1.43-1.06-.2-2.13-.46-3.06-1.02-.64-.39-1.2-.9-1.81-1.33-.84-.6-1.79-1.04-2.78-1.36-1.07-.34-2.22-.53-3.32-.35-2.18.35-3.91,2-5.97,2.79-2.68,1.02-5.91.44-8.05-1.48-.29-.26-.55-.57-.77-.89-.95-1.42-1.89-2.86-2.09-4.66-.04-.33-.02-.66.02-.99.03-.23.06-.7.36-.83"/>
+              <path fill="#20243a" d="M5.9,37.59c-.96-.03-2.42-.04-3.09-.86.03-.25.32-.04.55,0,3.46,1.23,5.65-2.51,6.23-5.62.07-.4.08-.48.15-.76.1-.39.12-.8.25-1.18.13-.38.25-.76.35-1.1.11-.48.82-2.46,1.48-1.82-2.16,4.11-.9,9.32-5.93,11.32Z"/>
+              <g class="hy-eyes">
+                <path class="hy-eye" fill="#f4f5f5" d="M32.21,15.59c-1.34.11-2.11-1.21-1.98-2.34.08-.66.21-1.13.65-1.42.5-.34,1.15-.43,1.82-.31.98.18,1.43,1.21,1.38,2.13-.04.92-.71,1.85-1.87,1.94ZM32.85,13.59c0-.43-.35-.79-.79-.79s-.79.35-.79.79.35.79.79.79.79-.35.79-.79Z"/>
+                <path class="hy-pupil" fill="#20243a" d="M31.92,14.54c-.43-.05-.68-.57-.63-.86.05-.38.26-.9.7-.91.66-.01.88.4.88.89,0,.46-.23.97-.95.88Z"/>
+                <path class="hy-pupil" fill="#20243a" d="M24.65,14.38c.43,0,.79-.35.79-.79s-.35-.79-.79-.79-.79.35-.79.79.35.79.79.79Z"/>
+                <path class="hy-eye" fill="#f4f5f5" d="M24.79,15.65c-1.34.11-2.11-1.21-1.98-2.34.08-.66.21-1.13.65-1.42.5-.34,1.15-.43,1.82-.31.98.18,1.43,1.21,1.38,2.13-.04.92-.71,1.85-1.87,1.94ZM25.43,13.66c0-.43-.35-.79-.79-.79s-.79.35-.79.79.35.79.79.79.79-.35.79-.79Z"/>
+              </g>
+              <path class="hy-mouth" fill="#20243a" d="M31.15,16.69c.55.53.11,1.12-.36,1.41-2.76,1.67-5.85-.51-5.5-1.33.06-.16.37-.13.51.04,1.25,1.59,3.99,1.67,5.34-.12h0Z"/>
+              <!-- LISTENING: wifi-style signal arcs arriving at the raised hand (top-right) -->
+              <g class="hy-ear-waves" aria-hidden="true">
+                <path class="ew ew1" d="M50.85,6.52 A4,4 0 0 1 54.48,10.15"/>
+                <path class="ew ew2" d="M51.11,3.53 A7,7 0 0 1 57.47,9.89"/>
+                <path class="ew ew3" d="M51.37,0.54 A10,10 0 0 1 60.46,9.63"/>
+              </g>
+            </svg>
+          </span>
+          <!-- SPEAKING: equalizer bars flanking the Huey's feet -->
+          <span class="orb-eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          <!-- WORKING: glowing comet dots orbiting the Huey at different speeds -->
+          <span class="orb-spin" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="orb-label" id="orb-label">tap to talk</span>
+        </button>
+      </div>
+      <div class="call-controls">
+        <!-- One icon connects AND disconnects: green handset = start, red handset-down = hang up -->
+        <button id="hangup" class="btn call-btn" type="button" aria-label="Start call" title="Start call">
+          <svg class="ph-start" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.62 10.79a15.05 15.05 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 0 1 1 1V20a1 1 0 0 1-1 1C10.85 21 3 13.15 3 3.5a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.24.2 2.45.57 3.57a1 1 0 0 1-.25 1.02l-2.2 2.2z"/></svg>
+          <svg class="ph-end" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .4-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85a.98.98 0 0 1-.7.28.96.96 0 0 1-.7-.29L.29 13.08a.96.96 0 0 1-.29-.7c0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.7 0 .28-.11.53-.29.71l-2.48 2.48a.96.96 0 0 1-.7.29.98.98 0 0 1-.7-.28 14.1 14.1 0 0 0-2.67-1.85 1 1 0 0 1-.56-.9v-3.1A15.4 15.4 0 0 0 12 9z"/></svg>
+        </button>
+        <button id="mute" class="btn ghost mute-btn" disabled aria-label="Mute microphone" title="Mute">
+          <svg class="mic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3.2"/></svg>
+          <svg class="mic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3.2"/><path d="M4 4l16 16"/></svg>
+        </button>
+        <button id="audio-fix" class="btn danger" type="button" hidden>🔊 Enable audio</button>
+        <span id="callstate" class="pill state" data-state="idle">idle</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Text <span class="hint">same team, same tab, same history</span></h2>
+      <form id="text-form">
+        <input id="text" placeholder="e.g. open uber eats and find me a pizza" autocomplete="off">
+        <button class="btn primary" type="submit">Send</button>
+      </form>
+      <div id="bots-note" class="bots-note" hidden></div>
+      <div id="transcript" class="transcript"></div>
+    </div>
+  </section>
+
+  <div id="col-resizer" class="col-resizer" title="Drag to resize · double-click to reset"><span class="grip"></span></div>
+
+  <!-- CENTRE: the browser -->
+  <section class="col centre">
+    <div class="card browser">
+      <!-- 11 Nov: open tabs — the agent and you share the same tab group; click to switch, × to close -->
+      <div id="tab-strip" class="tab-strip" hidden></div>
+      <div class="urlbar">
+        <button id="b-back" class="btn ghost small-btn" title="Back">←</button>
+        <input id="url" placeholder="Type a URL or a search and press Enter">
+        <button id="b-go" class="btn small-btn">Go</button>
+        <button id="b-newtab" class="btn ghost small-btn" title="New tab">+</button>
+        <button id="b-look" class="btn ghost small-btn" title="Fresh snapshot">↻</button>
+      </div>
+      <!-- Control options live at the TOP of the browser window: take control to drive the page
+           yourself (click, scroll, type — e.g. paging through a PDF), scroll/list without taking it. -->
+      <div class="btns small browser-controls"><button id="b-control" class="btn ghost small-btn">✋ Take control</button><button id="b-list" class="btn ghost small-btn">List options</button><span class="hint" id="frame-meta"></span></div>
+      <div class="browser-idle-hint">The live browser opens here the moment it's needed — or type a URL above to use it now.</div>
+      <!-- 11 Nov: the scroll RAIL on the right edge replaces the Scroll up/down buttons — it mirrors
+           the real page's scroll position (frames carry it) and dragging/clicking it scrolls the page. -->
+      <div class="frame-wrap"><img id="frame" alt="Live browser view"><div id="frame-empty" class="frame-empty">The live web view shows here the moment an agent opens a page.</div><span id="frame-badge" class="frame-badge"></span><div id="scroll-rail" class="scroll-rail" hidden><div id="scroll-thumb" class="scroll-thumb"></div></div><div id="frame-activity" class="frame-activity"><span class="spin"></span><span id="frame-activity-label">Working…</span></div></div>
+    </div>
+    <div class="card">
+      <h2 id="items-title">Options on this page <span class="hint">click a card to choose it</span></h2>
+      <div id="items" class="items"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Floating Huey chat-head: the orb + call controls are MOVED in here at boot (app.js), so every
+     handler keeps working while the whole widget can be dragged anywhere (position remembered). -->
+<div id="orb-float" class="orb-float"></div>
+
+<!-- RIGHT-EDGE TABS: each opens a drawer. Stacked top→bottom: Tasks, Text, Harness (= This turn · Talk Settings · Knowledge · Activity behind one tab). -->
+<div class="edge-tabs">
+  <button id="tasks-toggle" class="drawer-toggle tasks-toggle" title="Long-running tasks — message Aria, she works in the background and replies here" aria-expanded="false">
+    <span class="dt-label">Tasks</span><span id="tasks-badge" class="dt-badge" hidden>0</span>
+  </button>
+  <button id="text-toggle" class="drawer-toggle text-toggle" title="Type to the team — the text console and transcript" aria-expanded="false">
+    <span class="dt-label">Text</span><span id="text-badge" class="dt-badge" hidden>0</span>
+  </button>
+  <!-- 11 Nov: This turn / Talk Settings / Knowledge / Activity live behind ONE "Harness" tab.
+       Their original toggles stay in the DOM (hidden) so every drawer's JS keeps working; the
+       Harness tab opens the last-used one, and a sub-nav inside each drawer switches between them. -->
+  <button id="harness-toggle" class="drawer-toggle harness-toggle" title="Under the hood — This turn, Talk Settings, Knowledge and the Activity feed" aria-expanded="false">
+    <span class="dt-label">Harness</span><span id="harness-badge" class="dt-badge" hidden>0</span>
+  </button>
+  <button id="turn-toggle" class="drawer-toggle turn-toggle harness-member" title="Live metrics for the current turn" aria-expanded="false">
+    <span class="dt-label">This turn</span>
+  </button>
+  <button id="talk-toggle" class="drawer-toggle talk-toggle harness-member" title="Connect the softphone — register and settings" aria-expanded="false">
+    <span class="dt-label">Talk Settings</span><span id="talk-dot" class="dt-badge dot-badge" hidden>●</span>
+  </button>
+  <button id="kb-toggle" class="drawer-toggle kb-toggle harness-member" title="View and edit the team's knowledge bases (SOPs and FAQs, stored in Qdrant)" aria-expanded="false">
+    <span class="dt-label">Knowledge</span>
+  </button>
+  <button id="drawer-toggle" class="drawer-toggle harness-member" title="Show SOPs, knowledge and the live event feed" aria-expanded="false">
+    <span class="dt-label">Activity</span><span id="drawer-badge" class="dt-badge" hidden>0</span>
+  </button>
+</div>
+
+<!-- KNOWLEDGE drawer (web only): view / create / edit / delete the two knowledge bases -->
+<div id="kb-backdrop" class="drawer-backdrop"></div>
+<aside id="kb-drawer" class="drawer kb-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Knowledge bases <span class="hint">SOPs — how the team behaves · FAQs — what it knows · Memory — what it has learned</span></h2>
+    <span id="kb-backend" class="pill" title="Where retrieval is answered from">…</span>
+    <button id="kb-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
+  </div>
+  <div class="drawer-body kb-admin">
+    <div class="kb-side">
+      <div class="kb-kinds">
+        <button class="kb-kind on" data-kind="sop">SOPs <span id="kb-count-sop" class="kb-count">0</span></button>
+        <button class="kb-kind" data-kind="knowledge">FAQs <span id="kb-count-knowledge" class="kb-count">0</span></button>
+        <button class="kb-kind" data-kind="memory" title="Long-term memory — self-learned by the Memorist agent after each session (contacts, venues, links, preferences). Edit or delete anything; each doc carries its self-learning scorecard.">🧠 Memory <span id="kb-count-memory" class="kb-count">0</span></button>
+      </div>
+      <ul id="kb-list" class="kb-list"></ul>
+      <button id="kb-new" class="btn">＋ New document</button>
+    </div>
+    <div class="kb-editor">
+      <div class="kb-grid2">
+        <label class="kb-field"><span>ID</span><input id="kbf-id" placeholder="SOP-012 / KB-shipping" autocomplete="off"></label>
+        <label class="kb-field"><span>Title</span><input id="kbf-title" placeholder="What this document covers" autocomplete="off"></label>
+      </div>
+      <div class="kb-grid2 kb-sop-only">
+        <label class="kb-field"><span>Priority <small>(1 = most important)</small></span><input id="kbf-priority" type="number" min="1" max="9" value="5"></label>
+        <label class="kb-field kb-check"><span>Always in force</span><input id="kbf-always" type="checkbox"> <small>include on every turn</small></label>
+      </div>
+      <label class="kb-field kb-sop-only"><span>Triggers <small>(comma-separated phrases that bring this SOP into play)</small></span><input id="kbf-triggers" placeholder="send me a map, drop a pin" autocomplete="off"></label>
+      <div class="kb-grid2">
+        <label class="kb-field"><span>Tags <small>(comma-separated)</small></span><input id="kbf-tags" placeholder="maps, location" autocomplete="off"></label>
+        <label class="kb-field"><span>Sites <small>(hostnames this applies to)</small></span><input id="kbf-sites" placeholder="ubereats.com" autocomplete="off"></label>
+      </div>
+      <div id="kbf-meta" class="kb-meta" hidden></div>
+      <label class="kb-field kb-body-field"><span>Body <small>(markdown — headings become retrieval chunks)</small></span><textarea id="kbf-body" spellcheck="false"></textarea></label>
+      <div class="kb-actions">
+        <button id="kb-save" class="btn">Save & re-index</button>
+        <button id="kb-delete" class="btn ghost danger" hidden>Delete</button>
+        <span id="kb-msg" class="hint"></span>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- TASKS drawer (web + app): the async text channel. Long-running conversations with Aria —
+     she works in the background (browse, phone, team) and every update lands in the thread,
+     which is persisted server-side, so it survives reloads, restarts and closed consoles. -->
+<div id="tasks-backdrop" class="drawer-backdrop"></div>
+<aside id="tasks-drawer" class="drawer tasks-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Tasks <span class="hint">message Aria · she works in the background · replies land here</span></h2>
+    <button id="task-new" class="btn small-btn" title="Start a new task">＋ New task</button>
+    <button id="tasks-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
+  </div>
+  <div class="drawer-body tasks-body">
+    <div class="task-side">
+      <ul id="task-list" class="task-list"><li class="task-none hint">No tasks yet — start one and Aria gets to work.</li></ul>
+    </div>
+    <div class="task-main">
+      <div id="task-head" class="task-head" hidden>
+        <div class="task-head-main"><b id="task-title"></b><span id="task-status" class="pill task-pill"></span></div>
+        <div class="task-head-btns">
+          <button id="task-done" class="btn ghost small-btn" title="Mark this task finished">✓ Done</button>
+          <button id="task-delete" class="btn ghost small-btn" title="Delete this task and its thread">🗑</button>
+        </div>
+      </div>
+      <div id="task-thread" class="task-thread">
+        <div class="task-empty hint">Pick a task on the left — or just type below to start a new one.<br><br>A task is an ongoing text conversation: Aria browses, phones people and uses her tools in the background, and every update lands in the thread whether or not you're watching.</div>
+      </div>
+      <form id="task-form" class="task-form">
+        <input id="task-input" placeholder="Ask Aria to get something done…" autocomplete="off">
+        <button class="btn primary" type="submit">Send</button>
+      </form>
+    </div>
+  </div>
+</aside>
+
+<!-- TEXT drawer (web only): the text console + transcript dock here, minimized to an edge tab.
+     The Text card is MOVED in at boot (app.js) so its handlers and live updates stay intact. -->
+<div id="text-backdrop" class="drawer-backdrop"></div>
+<aside id="text-drawer" class="drawer text-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Text <span class="hint">same team, same tab, same history</span></h2>
+    <button id="text-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
+  </div>
+  <div class="drawer-body" id="text-drawer-body"></div>
+</aside>
+
+<!-- THIS TURN drawer: live metrics for the current turn -->
+<div id="turn-backdrop" class="drawer-backdrop"></div>
+<aside id="turn-drawer" class="drawer turn-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>This turn <span class="hint" id="turn-who">—</span></h2>
+    <button id="turn-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
+  </div>
+  <div class="drawer-body">
+    <!-- System status pills (moved from the page header, 11 Nov) -->
+    <div class="turn-pills">
+      <span id="speaker-pill" class="pill lane" title="Who is speaking right now">nobody speaking</span>
+      <span id="model-pill" class="pill" title="Models in use">models: …</span>
+      <span id="kb-pill" class="pill" title="Knowledge backend">kb: …</span>
+      <span id="obs-pill" class="pill" title="Observability backend">obs: …</span>
+      <span id="feed-state" class="pill">feed: connecting…</span>
+    </div>
+    <div class="card">
+      <div class="turnstats">
+        <div class="ts model-tile"><b id="st-model">–</b><span>model</span></div>
+        <div class="ts"><b id="st-agent">–</b><span>agent</span></div>
+        <div class="ts"><b id="st-lane">–</b><span>lane</span></div>
+        <div class="ts"><b id="st-turns">0</b><span>turns</span></div>
+        <div class="ts"><b id="st-ttft">–</b><span>TTFT</span></div>
+        <div class="ts"><b id="st-first">–</b><span>first chunk</span></div>
+        <div class="ts"><b id="st-tokens">–</b><span>tokens in / out</span></div>
+        <div class="ts"><b id="st-tools">–</b><span>tools this turn</span></div>
+        <div class="ts"><b id="st-cost">–</b><span>cost this turn</span></div>
+        <div class="ts"><b id="st-cost-total">–</b><span>cost so far (indicative)</span></div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- ACTIVITY drawer: minimized by default, slides out near-full-screen -->
+<div id="drawer-backdrop" class="drawer-backdrop"></div>
+<aside id="drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Activity <span class="hint">SOPs · knowledge · everything the team sees and does</span></h2>
+    <span id="mood-pill" class="pill" title="Caller mood right now">mood: –</span>
+    <button id="drawer-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="card">
+      <h2>Caller sentiment <span class="hint">per turn, lexicon, no added latency</span></h2>
+      <div class="sent">
+        <div class="sent-tile">
+          <div class="sent-score"><b id="sent-now">–</b><span id="sent-arrow" class="arrow"></span></div>
+          <div id="sent-label" class="sent-label">no caller turns yet</div>
+          <div id="sent-trend" class="sent-trend">trend: –</div>
+        </div>
+        <svg id="sent-chart" viewBox="0 0 640 150" role="img" aria-label="Caller sentiment per turn"></svg>
+      </div>
+    </div>
+    <div class="card">
+      <h2>SOPs in force <span class="hint" id="sop-why"></span></h2>
+      <div id="sops" class="taglist"><span class="hint">none yet</span></div>
+    </div>
+    <div class="card">
+      <h2>Knowledge <span class="hint" id="kb-meta"></span></h2>
+      <div id="knowledge" class="kb"><span class="hint">no knowledge hits yet</span></div>
+    </div>
+    <div class="card live">
+      <h2>Live events <span class="hint">transcripts · who's speaking · models · tools · sentiment</span></h2>
+      <ol id="events" class="events"></ol>
+      <label class="chk"><input id="autoscroll" type="checkbox" checked> follow</label>
+    </div>
+    <div class="card" id="recordings-card" hidden>
+      <h2>Call recordings <span class="hint">the inbound call and any outbound calls it made · play to test</span></h2>
+      <div id="recordings" class="recordings"></div>
+    </div>
+    <div class="card" id="sms-card" hidden>
+      <h2>SMS activity <span class="hint">texts the agent sent this session · to whom and what</span></h2>
+      <div id="sms-list" class="recordings"></div>
+    </div>
+    <!-- ids are botlog-*: Talk Settings already owns #bots-list for the chatbot CONFIG rows, and a
+         duplicate id sent those rows into this card. -->
+    <div class="card" id="botlog-card" hidden>
+      <h2>Chatbot conversations <span class="hint">what the agent asked other bots, and their replies</span></h2>
+      <div id="botlog-list" class="recordings"></div>
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button id="make-share" class="btn primary">★ Create shareable recap</button>
+    <span id="share-status" class="hint">a self-contained page of this call — transcript, metrics, audio, texts, chatbots — to send or post</span>
+  </div>
+</aside>
+
+<!-- TALK SETTINGS drawer (its edge tab lives in .edge-tabs above) -->
+<div id="talk-backdrop" class="drawer-backdrop"></div>
+<aside id="talk-drawer" class="drawer talk-drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Talk Settings <span class="hint">browser → jambonz over WebRTC</span></h2>
+    <span id="reg-pill" class="pill" data-state="idle">not registered</span>
+    <button id="talk-close" class="btn ghost small-btn" title="Minimize">Close ✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="card">
+      <p class="help">Create a <b>Client</b> in the jambonz portal (Build → Clients), tick <b>Allow direct app calling</b>, and enter it here. Dial <code>app:&lt;application sid&gt;</code> or a routed number. Settings stay in this browser and auto-register on load. Tap the voice orb to start a call; Hang up sits beside it.</p>
+      <form id="sip-form" autocomplete="off">
+        <label>SBC WSS URL <input id="wss" placeholder="wss://sip.jambonz.cloud:8443"></label>
+        <label>SIP realm <input id="realm" placeholder="huey.sip.jambonz.cloud"></label>
+        <label>Client username <input id="user" autocomplete="username" placeholder="mick"></label>
+        <label>Client password <input id="pass" type="password" autocomplete="current-password"></label>
+        <label>Dial <input id="number" placeholder="app:735e68db-… or +61745188002"></label>
+      </form>
+      <div class="btns">
+        <button id="register" class="btn">Register</button>
+        <span class="hint">tap the orb above to call · Hang up / Mute sit under it</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="context-box">
+        <div class="ctx-head">Test calls <span class="hint">outbound calls place REAL calls. Turn this on to send every call the team makes to a test number you control instead — the name and message are kept, so it behaves just like the real thing.</span></div>
+        <label class="chk"><input id="test-calls" type="checkbox"> Redirect every outbound call to a test number</label>
+        <label class="field-row">Test number <input id="test-number" placeholder="+61400000000" autocomplete="off"></label>
+        <div class="ctx-foot"><span id="test-status" class="hint">off — calls go to their real numbers</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="context-box">
+        <div class="ctx-head">Chatbots <span class="hint">external assistants the team can message with the <b>ask_chatbot</b> tool — a Cognigy bot, an ElevenLabs / Vertex / CX Agent Studio agent, and more. (You can also just ask the team to open a chatbot's web page in the browser and type to it there.)</span></div>
+        <div id="bots-list" class="bots-rows"><span class="hint">no chatbots configured yet</span></div>
+        <details id="bot-editor" class="bot-editor">
+          <summary id="bot-editor-summary">+ Add a chatbot</summary>
+          <div class="bot-form">
+            <label class="field-row">Name <input id="bot-name" placeholder="Chatbot #1" autocomplete="off"></label>
+            <label class="field-row">Type <select id="bot-provider"></select></label>
+            <div id="bot-note" class="hint"></div>
+            <label class="field-row" id="bot-url-row"><span id="bot-url-label">Endpoint</span> <input id="bot-url" placeholder="https://…" autocomplete="off"></label>
+            <div id="bot-url-hint" class="hint mono-hint"></div>
+            <details class="bot-advanced" id="bot-advanced">
+              <summary>Advanced (optional)</summary>
+              <label class="field-row" id="bot-key-row"><span id="bot-key-label">API key</span> <input id="bot-key" type="password" placeholder="" autocomplete="off"></label>
+              <div id="bot-key-hint" class="hint"></div>
+              <label class="field-row" id="bot-model-row" hidden><span id="bot-model-label">Model</span> <input id="bot-model" placeholder="gpt-5.4-mini" autocomplete="off"></label>
+              <div id="bot-model-hint" class="hint" hidden>only used by OpenAI bots — picks the model id (e.g. gpt-5.4-mini)</div>
+              <label class="field-row">Reply path <input id="bot-replypath" placeholder="e.g. data.0.text — leave blank for auto" autocomplete="off"></label>
+              <label class="field-row">Hide lines matching <input id="bot-droppattern" placeholder="regex, e.g. ^debug:" autocomplete="off"></label>
+              <label class="col-field">Extra headers (JSON) <textarea id="bot-headers" rows="2" placeholder='{"X-Custom":"value"}'></textarea></label>
+              <label class="col-field">Body template (JSON, overrides the preset) <textarea id="bot-body" rows="2" placeholder='{"text":"{{message}}","sessionId":"{{session}}"}'></textarea></label>
+            </details>
+            <div class="btns"><button id="bot-save" class="btn primary" type="button">Add chatbot</button><button id="bot-reset" class="btn ghost small-btn" type="button">Clear</button><span id="bot-status" class="hint"></span></div>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="card">
+      <div class="context-box mcp-admin">
+        <div class="ctx-head">MCP connections <span class="hint">external <b>Model Context Protocol</b> servers the team can use as tools. Add a server and the team gains its tools on the next turn via <b>use_mcp_tool</b>.</span></div>
+        <div id="mcp-list" class="mcp-rows"><span class="hint">no MCP servers configured yet</span></div>
+        <details id="mcp-editor" class="mcp-editor">
+          <summary id="mcp-editor-summary">+ Add an MCP server</summary>
+          <div class="mcp-form">
+            <div class="mcp-field">
+              <label for="mcp-preset">Quick add</label>
+              <select id="mcp-preset"></select>
+              <div id="mcp-preset-note" class="mcp-note"></div>
+            </div>
+            <div class="mcp-grid2">
+              <div class="mcp-field">
+                <label for="mcp-name">Name</label>
+                <input id="mcp-name" placeholder="MCP server #1" autocomplete="off">
+              </div>
+              <div class="mcp-field">
+                <label for="mcp-auth">Auth</label>
+                <select id="mcp-auth"><option value="none">None (public)</option><option value="bearer">Bearer token</option><option value="key">Custom header</option></select>
+              </div>
+            </div>
+            <div class="mcp-field">
+              <label for="mcp-url">Server URL</label>
+              <input id="mcp-url" placeholder="https://…/mcp" autocomplete="off">
+              <div class="mcp-sub">Streamable-HTTP MCP endpoint — the URL you'd give an MCP client.</div>
+            </div>
+            <div class="mcp-field" id="mcp-key-row" hidden>
+              <label for="mcp-key" id="mcp-key-label">Token</label>
+              <input id="mcp-key" type="password" placeholder="" autocomplete="off">
+            </div>
+            <div class="mcp-field" id="mcp-header-row" hidden>
+              <label for="mcp-header">Header name</label>
+              <input id="mcp-header" placeholder="X-API-Key" autocomplete="off">
+            </div>
+            <details class="mcp-advanced" id="mcp-advanced">
+              <summary>Advanced (optional)</summary>
+              <div class="mcp-field"><label for="mcp-headers">Extra headers (JSON)</label><textarea id="mcp-headers" rows="2" placeholder='{"X-Custom":"value"}'></textarea></div>
+              <div class="mcp-field"><label for="mcp-allow">Only expose tools</label><input id="mcp-allow" placeholder="comma-separated tool names — blank = all" autocomplete="off"></div>
+            </details>
+            <div class="mcp-actions">
+              <button id="mcp-save" class="btn primary" type="button">Add server</button>
+              <button id="mcp-reset" class="btn ghost small-btn" type="button">Clear</button>
+              <button id="mcp-test" class="btn ghost small-btn" type="button">Test</button>
+              <span id="mcp-status" class="mcp-status-msg"></span>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
+    <div class="card">
+      <div class="context-box">
+        <div class="ctx-head">Long Term Memory <span class="hint">your name, location, how you like to be spoken to, and anything the team learns. Sign in with your email to share it across your devices (web + app); otherwise it stays in this browser.</span></div>
+        <div class="id-row">
+          <input id="user-email" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com — sign in to sync">
+          <button id="id-save" class="btn small-btn" type="button">Sign in</button>
+          <span id="id-status" class="hint"></span>
+        </div>
+        <textarea id="caller-context" rows="3" placeholder="e.g. My name is Mick. I'm in Toogoolawah, Queensland. I prefer a male voice and being called by my first name."></textarea>
+        <div class="ctx-foot">
+          <label class="chk"><input id="context-remember" type="checkbox" checked> Let the team add what they learn</label>
+          <button id="context-clear" class="btn ghost small-btn" type="button">Clear</button>
+          <span id="context-status" class="hint"></span>
+        </div>
+      </div>
+      <details><summary>softphone log</summary><pre id="siplog" class="log"></pre></details>
+    </div>
+  </div>
+</aside>
+<audio id="remoteAudio" autoplay playsinline></audio>
+<script src="./vendor/qrcode.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

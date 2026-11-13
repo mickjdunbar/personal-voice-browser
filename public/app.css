@@ -1,0 +1,964 @@
+:root{
+  --bg:#F4F3FA;
+  --bg-grad:radial-gradient(1200px 700px at 14% -8%,#E7E4FB 0%,transparent 56%),radial-gradient(1000px 640px at 112% -4%,#D9F3F9 0%,transparent 52%),var(--bg);
+  --surface:#FFFFFF; --surface-2:#F4F2FB; --ink:#1A1F35; --muted:#6A6A80; --line:#E7E4F2; --line-soft:#F1EEF9;
+  /* Huey palette — vibrant brand colours */
+  --accent:#5C59E8; --accent-2:#F53B7B; --accent-soft:#ECEBFE; --ok:#12B76A; --ok-soft:#D7F3E6; --warn:#C77A00; --warn-soft:#FEF2CC; --bad:#E5484D; --bad-soft:#FBE3E4;
+  --you:#5C59E8;
+  /* external sources: a phone call (pink, matches 📞) and an external chatbot (purple) */
+  --phone:#F53B7B; --phone-soft:#FDDCE8; --bot:#5C59E8; --bot-soft:#D4D2F8;
+  /* agent / lane palette = the five Huey colours (shared with the server's color keys) */
+  --ag-host:#F4603A; --ag-concierge:#5C59E8; --ag-shopper:#12B76A; --ag-scout:#F53B7B; --ag-local:#17D4E8; --ag-memory:#A855F7; --ag-yellow:#FBCC2A; --tool:#6A6A80;
+  --fast:#17D4E8; --deep:#5C59E8; --s2s:#F4603A; --specialist:#5C59E8;
+  --radius:14px; --radius-sm:10px; --radius-lg:22px;
+  --shadow-sm:0 1px 2px rgba(18,28,45,.05),0 1px 3px rgba(18,28,45,.05);
+  --shadow-md:0 2px 6px rgba(18,28,45,.06),0 10px 26px -12px rgba(18,28,45,.20);
+  --shadow-lg:0 20px 50px -16px rgba(18,28,45,.30);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 28%,transparent);
+  /* Aurora Glass: translucent panels, a living aurora backdrop, accent glow */
+  --glass:color-mix(in srgb,var(--surface) 68%,transparent);
+  --glass-2:color-mix(in srgb,var(--surface) 52%,transparent);
+  --glass-border:color-mix(in srgb,#ffffff 72%,var(--line));
+  --blur:18px;
+  --glow:0 0 0 1px color-mix(in srgb,var(--accent) 20%,transparent),0 12px 36px -10px color-mix(in srgb,var(--accent) 42%,transparent);
+  --aur-1:#D4D2F8; --aur-2:#C9F0F9; --aur-3:#FDDCE8; --aur-4:#FCE07A; --aur-5:#D5F3E4; --aur-6:#FFE9A8;
+  --display:'Bricolage Grotesk','Sora',system-ui,sans-serif; --body:'IBM Plex Sans',Segoe UI,system-ui,sans-serif; --mono:'IBM Plex Mono',Consolas,monospace;
+  color-scheme:light;
+}
+/* 11 Nov: dark theme retuned — near-black base, electric blue primary, orange secondary
+   (deep-SaaS look). Both dark blocks below must stay IDENTICAL. */
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#060709;
+  --bg-grad:radial-gradient(1200px 700px at 12% -10%,#0B1E3A 0%,transparent 55%),radial-gradient(1000px 640px at 114% -4%,#2A1505 0%,transparent 52%),var(--bg);
+  --surface:#0E1116; --surface-2:#0A0D12; --ink:#EDF0F5; --muted:#8A93A6; --line:#1C212B; --line-soft:#151A22;
+  --accent:#3B82F6; --accent-2:#F97316; --accent-soft:#0D1B33; --ok:#22C55E; --ok-soft:#0A2718; --warn:#F59E0B; --warn-soft:#2A1D06; --bad:#EF4444; --bad-soft:#2F0F0E;
+  --you:#3B82F6; --phone:#FB923C; --phone-soft:#2A1505; --bot:#60A5FA; --bot-soft:#0D1B33;
+  --ag-host:#FF8A3D; --ag-concierge:#4F8DFF; --ag-shopper:#2EE6A8; --ag-scout:#F45B69; --ag-local:#38BDF8; --ag-memory:#C084FC; --tool:#8A93A6;
+  --fast:#38BDF8; --deep:#4F8DFF; --s2s:#FF8A3D; --specialist:#4F8DFF;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.50);
+  --shadow-md:0 2px 8px rgba(0,0,0,.50),0 14px 32px -14px rgba(0,0,0,.70);
+  --shadow-lg:0 22px 56px -18px rgba(0,0,0,.80);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 36%,transparent);
+  --glass:color-mix(in srgb,var(--surface) 56%,transparent);
+  --glass-2:color-mix(in srgb,var(--surface) 40%,transparent);
+  --glass-border:color-mix(in srgb,#ffffff 12%,var(--line));
+  --glow:0 0 0 1px color-mix(in srgb,var(--accent) 26%,transparent),0 14px 40px -10px color-mix(in srgb,var(--accent) 52%,transparent);
+  --aur-1:#0B2040; --aur-2:#042A4E; --aur-3:#331503; --aur-4:#0A1430; --aur-5:#03251C; --aur-6:#2A1105;
+  color-scheme:dark } }
+/* Manual override (header theme button): data-theme="dark" forces the dark palette on any OS,
+   data-theme="light" keeps the :root light palette (the media query excludes it). */
+:root[data-theme="dark"]{
+  --bg:#060709;
+  --bg-grad:radial-gradient(1200px 700px at 12% -10%,#0B1E3A 0%,transparent 55%),radial-gradient(1000px 640px at 114% -4%,#2A1505 0%,transparent 52%),var(--bg);
+  --surface:#0E1116; --surface-2:#0A0D12; --ink:#EDF0F5; --muted:#8A93A6; --line:#1C212B; --line-soft:#151A22;
+  --accent:#3B82F6; --accent-2:#F97316; --accent-soft:#0D1B33; --ok:#22C55E; --ok-soft:#0A2718; --warn:#F59E0B; --warn-soft:#2A1D06; --bad:#EF4444; --bad-soft:#2F0F0E;
+  --you:#3B82F6; --phone:#FB923C; --phone-soft:#2A1505; --bot:#60A5FA; --bot-soft:#0D1B33;
+  --ag-host:#FF8A3D; --ag-concierge:#4F8DFF; --ag-shopper:#2EE6A8; --ag-scout:#F45B69; --ag-local:#38BDF8; --ag-memory:#C084FC; --tool:#8A93A6;
+  --fast:#38BDF8; --deep:#4F8DFF; --s2s:#FF8A3D; --specialist:#4F8DFF;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.50);
+  --shadow-md:0 2px 8px rgba(0,0,0,.50),0 14px 32px -14px rgba(0,0,0,.70);
+  --shadow-lg:0 22px 56px -18px rgba(0,0,0,.80);
+  --ring:0 0 0 3px color-mix(in srgb,var(--accent) 36%,transparent);
+  --glass:color-mix(in srgb,var(--surface) 56%,transparent);
+  --glass-2:color-mix(in srgb,var(--surface) 40%,transparent);
+  --glass-border:color-mix(in srgb,#ffffff 12%,var(--line));
+  --glow:0 0 0 1px color-mix(in srgb,var(--accent) 26%,transparent),0 14px 40px -10px color-mix(in srgb,var(--accent) 52%,transparent);
+  --aur-1:#0B2040; --aur-2:#042A4E; --aur-3:#331503; --aur-4:#0A1430; --aur-5:#03251C; --aur-6:#2A1105;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14.5px;line-height:1.45;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;position:relative}
+/* Aurora Glass — a slowly drifting aurora behind everything, plus a reactive "room glow"
+   that takes on the orb's current state colour. Both are fixed, behind all content. */
+body::before{content:"";position:fixed;inset:-25%;z-index:-2;pointer-events:none;
+  background:
+    radial-gradient(46% 46% at 16% 20%, var(--aur-1), transparent 72%),
+    radial-gradient(44% 44% at 84% 14%, var(--aur-2), transparent 72%),
+    radial-gradient(52% 52% at 66% 90%, var(--aur-3), transparent 74%),
+    radial-gradient(40% 40% at 34% 60%, var(--aur-4), transparent 68%),
+    radial-gradient(36% 36% at 90% 72%, var(--aur-5), transparent 72%),
+    radial-gradient(34% 34% at 72% 40%, var(--aur-6), transparent 70%);
+  opacity:1;filter:saturate(1.16);animation:aurora-drift 26s ease-in-out infinite}
+body::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:radial-gradient(760px 560px at var(--room-pos,24% 16%), var(--room,color-mix(in srgb,var(--accent) 14%,transparent)), transparent 70%);
+  transition:background .6s ease,opacity .6s ease}
+body:has(.assistant-orb[data-state="idle"]){--room:color-mix(in srgb,var(--accent) 20%,transparent)}
+body:has(.assistant-orb[data-state="listening"]){--room:color-mix(in srgb,var(--ok) 36%,transparent)}
+body:has(.assistant-orb[data-state="speaking"]){--room:color-mix(in srgb,var(--s2s) 42%,transparent)}
+body:has(.assistant-orb.held){--room:color-mix(in srgb,var(--bad) 36%,transparent)}
+@keyframes aurora-drift{
+  0%{transform:translate3d(0,0,0) rotate(0deg) scale(1.08)}
+  50%{transform:translate3d(-3%,2.5%,0) rotate(7deg) scale(1.22)}
+  100%{transform:translate3d(0,0,0) rotate(0deg) scale(1.08)}
+}
+@media (prefers-reduced-motion:reduce){body::before{animation:none}}
+.top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--glass-border);background:color-mix(in srgb,var(--surface) 62%,transparent);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);position:sticky;top:0;z-index:5;box-shadow:0 1px 0 color-mix(in srgb,#ffffff 30%,transparent),0 8px 24px -16px rgba(0,0,0,.4)}
+.brand{font-family:var(--display);font-weight:700;font-size:16px;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+.brand-col{display:flex;flex-direction:column;gap:1px}
+/* live running cost of the current call, right under the title (web only) */
+.call-cost{font-family:var(--mono);font-weight:600;font-size:13px;letter-spacing:.04em;color:var(--muted);display:inline-flex;align-items:center;gap:6px}
+.call-cost[hidden]{display:none}
+.call-cost.live{color:var(--ok)}
+.call-cost.live::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--ok);animation:cost-pulse 1.4s ease-in-out infinite}
+@keyframes cost-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+.brand .dot{width:11px;height:11px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent-2));box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent),0 1px 4px color-mix(in srgb,var(--accent) 55%,transparent)}
+.brand .sub{font-family:var(--body);font-weight:400;font-size:12.5px;color:var(--muted)}
+.status{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);white-space:nowrap;max-width:360px;overflow:hidden;text-overflow:ellipsis;border:1px solid color-mix(in srgb,var(--accent) 12%,transparent)}
+.pill.ok{background:var(--ok-soft);color:var(--ok);border-color:color-mix(in srgb,var(--ok) 14%,transparent)} .pill.bad{background:var(--bad-soft);color:var(--bad);border-color:color-mix(in srgb,var(--bad) 14%,transparent)} .pill.warn{background:var(--warn-soft);color:var(--warn);border-color:color-mix(in srgb,var(--warn) 16%,transparent)}
+.pill.lane[data-color]{background:var(--c,var(--accent));color:#fff;border-color:transparent}
+.card{background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--radius);padding:13px 15px;
+  box-shadow:var(--shadow-md),inset 0 1px 0 color-mix(in srgb,#ffffff 45%,transparent);
+  backdrop-filter:blur(var(--blur)) saturate(1.35);-webkit-backdrop-filter:blur(var(--blur)) saturate(1.35)}
+.card h2{font-family:var(--display);font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.card h2 .hint{font-family:var(--body);font-weight:400;font-size:12px;color:var(--muted)}
+.help{font-size:12.5px;color:var(--muted);margin:0 0 8px}
+.btn{font:inherit;font-weight:600;font-size:13.5px;padding:7px 13px;border-radius:11px;border:1px solid var(--glass-border);background:var(--glass-2);color:var(--ink);cursor:pointer;transition:background .18s,border-color .18s,box-shadow .18s,transform .08s;box-shadow:var(--shadow-sm),inset 0 1px 0 color-mix(in srgb,#ffffff 35%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.btn:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--glass-border));box-shadow:var(--shadow-md),0 0 0 3px color-mix(in srgb,var(--accent) 10%,transparent);transform:translateY(-1px)}
+.btn:active{transform:translateY(1px)}
+.btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));border-color:transparent;color:#fff;box-shadow:0 2px 10px -1px color-mix(in srgb,var(--accent) 60%,transparent),inset 0 1px 0 color-mix(in srgb,#ffffff 35%,transparent)}
+.btn.primary:hover{box-shadow:0 8px 24px -4px color-mix(in srgb,var(--accent) 70%,transparent),0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent);transform:translateY(-1px)}
+.btn.danger{background:var(--bad);border-color:transparent;color:#fff;box-shadow:0 2px 8px -1px color-mix(in srgb,var(--bad) 50%,transparent)}
+.btn.ghost{background:transparent;box-shadow:none}
+.btn.ghost:hover{background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none;transform:none}
+.small-btn{padding:4px 10px;font-size:12.5px;border-radius:8px}
+#sound[aria-pressed="true"]{background:var(--ok);border-color:transparent;color:#fff}
+
+/* ---- full-width band: team + this-turn ------------------------------------ */
+.band{display:grid;grid-template-columns:var(--bandw,0.82fr) 14px minmax(0,1.18fr);gap:0;padding:12px 12px 0}
+@media (max-width:1100px){ .band{grid-template-columns:1fr} .band-resizer{display:none} }
+/* team as compact chips — scales to dozens of agents */
+.roster{display:flex;gap:6px;flex-wrap:wrap;align-content:flex-start;max-height:168px;overflow:auto}
+.chip-agent{display:flex;align-items:center;gap:7px;padding:3px 11px 3px 3px;border-radius:999px;border:1px solid var(--line);background:var(--bg);position:relative;transition:box-shadow .15s,transform .15s;cursor:default}
+.chip-agent .av{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;background:color-mix(in srgb,var(--c) 16%,var(--surface));border:1.5px solid var(--c);flex:none}
+.chip-agent .nm{font-family:var(--display);font-weight:600;font-size:12.5px;white-space:nowrap}
+.chip-agent .nm small{font-family:var(--mono);font-weight:400;font-size:9px;color:var(--muted);margin-left:4px}
+.chip-agent.speaking{box-shadow:0 0 0 2px var(--c);transform:translateY(-1px);background:color-mix(in srgb,var(--c) 9%,var(--bg))}
+.chip-agent.speaking .av{animation:pulse 1.4s infinite}
+.chip-agent.listening .av{border-color:var(--ok)}
+/* a background worker: lit in its own colour, a steady working pulse, distinct from the one speaker */
+.chip-agent.working{box-shadow:0 0 0 1.5px color-mix(in srgb,var(--c) 70%,transparent);background:color-mix(in srgb,var(--c) 7%,var(--bg))}
+.chip-agent.working .av{animation:orb-work 1.6s ease-in-out infinite}
+@keyframes orb-work{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 45%,transparent)}50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--c) 0%,transparent)}}
+.chip-agent.idle{opacity:.5}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--c) 70%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+
+/* ---- voice-assistant orb --------------------------------------------------- */
+.team.card{display:flex;flex-direction:column}
+.assistant-orb{position:relative;display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;margin-top:10px;min-height:140px;--c:var(--accent);
+  border:none;background:transparent;color:inherit;font:inherit;padding:0;width:100%;cursor:default}
+.assistant-orb[data-state="idle"]{cursor:pointer}
+.assistant-orb[data-state="idle"]:hover .orb-core{box-shadow:0 0 0 1px var(--c),0 0 22px 2px color-mix(in srgb,var(--c) 55%,transparent),0 10px 30px -8px color-mix(in srgb,var(--c) 55%,transparent),inset 0 -7px 18px rgba(0,0,0,.4)}
+.assistant-orb[data-state="idle"]:hover .orb-glow{opacity:.5}
+.assistant-orb[data-state="idle"]:hover .orb-label{color:var(--c)}
+.assistant-orb:focus-visible{outline:none}
+.assistant-orb:focus-visible .orb-core{box-shadow:0 0 0 2px var(--accent),0 0 0 5px var(--accent-soft)}
+.orb-glow{position:absolute;top:44%;left:50%;width:160px;height:160px;transform:translate(-50%,-50%);border-radius:50%;background:radial-gradient(circle,color-mix(in srgb,var(--c) 60%,transparent),transparent 68%);filter:blur(18px);opacity:.4;transition:opacity .45s,background .45s;pointer-events:none}
+.orb-ring{position:absolute;top:44%;left:50%;width:94px;height:94px;transform:translate(-50%,-50%) scale(.7);border-radius:50%;border:1.5px solid var(--c);opacity:0;pointer-events:none}
+.orb-core{position:relative;width:94px;height:94px;border-radius:50%;overflow:hidden;box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 38%,transparent),0 10px 30px -8px color-mix(in srgb,var(--c) 55%,transparent),inset 0 -7px 18px rgba(0,0,0,.4);animation:orb-breathe 4.6s ease-in-out infinite;animation-play-state:paused;transition:box-shadow .45s}
+.orb-swirl{position:absolute;inset:-28%;border-radius:50%;background:conic-gradient(from 0deg,var(--c),#22d3ee,#8b5cf6,#ec4899,#22d3ee,var(--c));animation:orb-spin 15s linear infinite;animation-play-state:paused;filter:saturate(1.15)}
+.orb-gloss{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 33% 27%,rgba(255,255,255,.9),rgba(255,255,255,.14) 32%,transparent 54%),radial-gradient(circle at 72% 82%,rgba(0,0,0,.34),transparent 52%)}
+.orb-bars{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:4px;opacity:0;transition:opacity .25s}
+.orb-bars i{width:4px;height:10px;border-radius:3px;background:rgba(255,255,255,.95);box-shadow:0 0 7px rgba(255,255,255,.65)}
+.orb-label{font-family:var(--mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);transition:color .35s}
+@keyframes orb-spin{to{transform:rotate(360deg)}}
+@keyframes orb-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
+@keyframes orb-ripple{0%{transform:translate(-50%,-50%) scale(.7);opacity:.5}100%{transform:translate(-50%,-50%) scale(2.1);opacity:0}}
+@keyframes orb-bar{0%,100%{height:8px}50%{height:30px}}
+@keyframes orb-listen-glow{0%,100%{opacity:.34}50%{opacity:.58}}
+@keyframes orb-listen-ring{0%,100%{opacity:.14;transform:translate(-50%,-50%) scale(.9)}50%{opacity:.42;transform:translate(-50%,-50%) scale(1.22)}}
+
+/* IDLE — the orb is completely still and dim: asleep. */
+.assistant-orb[data-state="idle"] .orb-swirl{filter:saturate(.45) brightness(.72)}
+.assistant-orb[data-state="idle"] .orb-glow{opacity:.18}
+.assistant-orb[data-state="idle"] .orb-label{color:var(--muted)}
+
+/* LISTENING — calm green, slow breathing, a soft sonar halo pulsing INWARD/out gently.
+   Distinct from idle (still, dim) and from speaking (fast colourful swirl + bars + ripples). */
+.assistant-orb[data-state="listening"]{--c:var(--ok)}
+.assistant-orb[data-state="listening"] .orb-core{animation-play-state:running;animation-duration:5.4s}
+.assistant-orb[data-state="listening"] .orb-swirl{filter:saturate(.95) brightness(1)}
+.assistant-orb[data-state="listening"] .orb-glow{opacity:.46;animation:orb-listen-glow 2.8s ease-in-out infinite}
+.assistant-orb[data-state="listening"] .orb-ring.r1,
+.assistant-orb[data-state="listening"] .orb-ring.r2{animation:orb-listen-ring 2.8s ease-in-out infinite}
+.assistant-orb[data-state="listening"] .orb-ring.r2{animation-delay:1.4s}
+.assistant-orb[data-state="listening"] .orb-label{color:var(--ok)}
+.assistant-orb[data-state="speaking"] .orb-swirl{animation-play-state:running;animation-duration:3.4s;filter:saturate(1.45) brightness(1.12)}
+.assistant-orb[data-state="speaking"] .orb-core{animation-play-state:running}
+.assistant-orb[data-state="speaking"] .orb-glow{opacity:.9}
+.assistant-orb[data-state="speaking"] .orb-core{box-shadow:0 0 0 1px var(--c),0 0 28px 3px color-mix(in srgb,var(--c) 70%,transparent),0 10px 30px -6px color-mix(in srgb,var(--c) 70%,transparent),inset 0 -7px 18px rgba(0,0,0,.32)}
+.assistant-orb[data-state="speaking"] .orb-bars{opacity:1}
+.assistant-orb[data-state="speaking"] .orb-bars i{animation:orb-bar .9s ease-in-out infinite}
+.assistant-orb[data-state="speaking"] .orb-bars i:nth-child(1){animation-duration:.8s}
+.assistant-orb[data-state="speaking"] .orb-bars i:nth-child(2){animation-duration:1.05s;animation-delay:.12s}
+.assistant-orb[data-state="speaking"] .orb-bars i:nth-child(3){animation-duration:.68s;animation-delay:.05s}
+.assistant-orb[data-state="speaking"] .orb-bars i:nth-child(4){animation-duration:1.12s;animation-delay:.18s}
+.assistant-orb[data-state="speaking"] .orb-bars i:nth-child(5){animation-duration:.86s;animation-delay:.09s}
+.assistant-orb[data-state="speaking"] .orb-ring{animation:orb-ripple 1.9s ease-out infinite}
+.assistant-orb[data-state="speaking"] .orb-ring.r2{animation-delay:.63s}
+.assistant-orb[data-state="speaking"] .orb-ring.r3{animation-delay:1.26s}
+.assistant-orb[data-state="speaking"] .orb-label{color:var(--c)}
+@media (prefers-reduced-motion:reduce){.assistant-orb *{animation:none!important}}
+
+/* call controls beneath the orb */
+.call-controls{display:flex;gap:7px;flex-wrap:wrap;align-items:center;justify-content:center;margin-top:12px}
+/* The Huey never hangs up (tap = mute) — the handset icon beside it is the connect/disconnect. */
+#reg-pill{font-family:var(--mono);font-size:11px}
+#reg-pill[data-state="registered"]{background:var(--ok-soft);color:var(--ok)}
+#reg-pill[data-state="failed"]{background:var(--bad-soft);color:var(--bad)}
+#reg-pill[data-state="connecting"]{background:var(--warn-soft);color:var(--warn)}
+/* recordings + shareable footer in the drawer */
+.drawer-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;border-top:1px solid var(--glass-border);background:color-mix(in srgb,var(--surface) 50%,transparent)}
+#make-share{white-space:nowrap}
+#share-status{flex:1;min-width:120px}
+.recordings{display:flex;flex-direction:column;gap:8px}
+.rec{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--bg);display:flex;flex-direction:column;gap:6px}
+.rec .rh{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12.5px}
+.rec .rh b{font-family:var(--display)}
+.rec .rh .rtag{font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:999px}
+.rec .rh .rtag.inbound{background:var(--accent-soft);color:var(--accent)} .rec .rh .rtag.outbound{background:var(--warn-soft);color:var(--warn)}
+.rec .rh .rmeta{font-family:var(--mono);font-size:10.5px;color:var(--muted);margin-left:auto}
+/* SMS activity + Chatbot conversations (drawer cards under Call recordings) */
+.sms-body{font-size:12.5px;padding:7px 10px;border-radius:8px;background:color-mix(in srgb,var(--accent) 10%,var(--glass-2));border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));white-space:pre-wrap;word-break:break-word}
+.bot-line{font-size:12px;padding:6px 9px;border-radius:8px;background:var(--glass-2);border:1px solid var(--line);word-break:break-word}
+.bot-line.out{background:color-mix(in srgb,var(--ag-scout,#a855f7) 12%,var(--glass-2));border-color:color-mix(in srgb,var(--ag-scout,#a855f7) 32%,var(--line))}
+.bot-line.err{border-color:var(--bad)}
+.bot-line .bl-who{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.rec audio{width:100%;height:36px}
+
+.turnstats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (max-width:620px){ .turnstats{grid-template-columns:repeat(2,1fr)} }
+.ts{background:var(--surface-2);border:1px solid var(--line);border-radius:11px;padding:8px 11px;display:flex;flex-direction:column;min-width:0}
+.ts b{font-family:var(--display);font-size:19px;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ts span{font-size:11px;color:var(--muted)}
+/* model gets its own full-width row so the whole id is readable */
+.model-tile{grid-column:1 / -1;background:var(--accent-soft)}
+.model-tile b{font-size:16px;white-space:normal;line-height:1.15;color:var(--accent)}
+#st-agent{color:var(--c,var(--ink))}
+
+/* ---- 2-column grid (right column lives in the drawer) ---------------------- */
+main.grid{flex:1;display:grid;grid-template-columns:var(--leftw,380px) 14px minmax(0,1fr);gap:0;padding:12px;max-width:1720px;width:100%;margin:0 auto}
+@media (max-width:900px){ main.grid{grid-template-columns:1fr} .col-resizer{display:none} }
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+/* draggable divider between the left column and the browser */
+.col-resizer{align-self:stretch;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;-webkit-user-select:none;user-select:none}
+.col-resizer .grip{width:4px;height:46px;border-radius:3px;background:var(--line);transition:background .15s,height .15s}
+.col-resizer:hover .grip,.col-resizer.drag .grip{background:var(--accent);height:76px}
+body.col-resizing{cursor:col-resize;-webkit-user-select:none;user-select:none}
+
+/* ---- Activity drawer: minimized by default, slides out near-full-screen ----- */
+/* the stacked edge tabs live in one fixed, vertically-centred rail on the right */
+.edge-tabs{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:20;display:flex;flex-direction:column;gap:7px;align-items:flex-end}
+/* 11-12 Nov restyle: NEON edge tabs — each carries its own hot two-tone gradient (--t1 bright →
+   --t2 deep), a luminous 1px edge, hue BLOOM into the page, and glossy gradient-clipped labels. */
+.drawer-toggle{position:relative;z-index:20;display:flex;flex-direction:column;align-items:center;gap:6px;
+  --t1:var(--accent); --t2:color-mix(in srgb,var(--accent) 55%,#000);
+  background:linear-gradient(170deg,color-mix(in srgb,var(--t1) 80%,#fff) 0%,var(--t1) 38%,var(--t2) 100%);
+  color:#fff;border:none;border-radius:14px 0 0 14px;padding:15px 10px;cursor:pointer;font:inherit;font-weight:800;font-size:12.5px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 0 0 1px color-mix(in srgb,var(--t1) 55%,rgba(255,255,255,.35)),
+    0 0 14px color-mix(in srgb,var(--t1) 72%,transparent),
+    -10px 0 32px -2px color-mix(in srgb,var(--t1) 82%,transparent),
+    -2px 2px 12px rgba(0,0,0,.45);
+  transition:padding-right .16s,box-shadow .16s,filter .16s}
+.drawer-toggle:hover{padding-right:16px;filter:saturate(1.25) brightness(1.1);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.55),
+    inset 0 0 0 1px color-mix(in srgb,var(--t1) 70%,#fff),
+    0 0 18px color-mix(in srgb,var(--t1) 80%,transparent),
+    -14px 0 38px -2px color-mix(in srgb,var(--t1) 90%,transparent),
+    -2px 3px 14px rgba(0,0,0,.5)}
+/* hues: Tasks = neon orange (Aria's work), Text = neon mint, Harness = electric blue; the
+   hidden Harness members keep hues of their own in case they ever surface again. */
+#turn-toggle{--t1:#38BDF8;--t2:#0369A1}
+#talk-toggle{--t1:#FFB054;--t2:#EA5E00}
+#drawer-toggle{--t1:#8E9BFF;--t2:#4338E8}
+/* glossy label: white→tinted gradient clipped to the glyphs + a soft white-hot bloom
+   (filter:drop-shadow, not text-shadow — shadows would paint OVER clipped text) */
+.drawer-toggle .dt-label{writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.1em;font-size:13px;
+  background:linear-gradient(180deg,#fff 0%,#fff 62%,color-mix(in srgb,var(--t1) 28%,#fff) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 3px rgba(255,255,255,.75)) drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+.drawer-toggle .dt-badge{min-width:18px;padding:1px 5px;border-radius:999px;background:#fff;color:var(--t2,var(--accent));font-family:var(--mono);font-size:10.5px;font-weight:700;line-height:1.5;box-shadow:0 0 8px color-mix(in srgb,#fff 70%,var(--t1)),0 1px 4px rgba(0,0,0,.35)}
+.drawer-toggle .dot-badge{min-width:0;padding:0;background:none;color:#fff;font-size:13px;line-height:1;box-shadow:none}
+.drawer-toggle.open{display:none}
+.talk-drawer{width:min(520px,94vw)}
+.turn-drawer{width:min(600px,94vw)}
+.turn-drawer .turnstats{grid-template-columns:repeat(4,1fr)}
+/* 11 Nov: the header's status pills (speaker/models/kb/obs/feed) live at the top of This turn now */
+.turn-pills{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+/* brief attention pulse on the Talk tab when the team learns something while it's minimized */
+#talk-toggle.learned,#harness-toggle.learned{animation:tab-learned 1.1s ease-in-out 0s 4}
+/* 11 Nov: This turn / Talk Settings / Knowledge / Activity live behind ONE Harness edge tab.
+   Their own toggles stay in the DOM (each drawer's JS drives them) but never render. */
+.edge-tabs .harness-member{display:none}
+.harness-toggle{--t1:#5EB6FF;--t2:#1D4ED8}
+.harness-nav{display:flex;gap:6px;flex-wrap:wrap;align-items:center;padding:9px 14px;border-bottom:1px solid var(--glass-border);background:color-mix(in srgb,var(--surface) 34%,transparent)}
+.harness-nav .hn-tag{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);margin-right:4px}
+.harness-nav .hn{font:inherit;font-size:12.5px;padding:4px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.harness-nav .hn:hover{color:var(--ink)}
+.harness-nav .hn.on{background:var(--accent);border-color:var(--accent);color:#fff;cursor:default}
+@keyframes tab-learned{0%,100%{box-shadow:-3px 0 12px rgba(0,0,0,.18)}50%{box-shadow:-3px 0 0 3px var(--ok),-3px 0 18px rgba(0,0,0,.28)}}
+.drawer-backdrop{position:fixed;inset:0;background:rgba(8,12,18,.42);opacity:0;pointer-events:none;transition:opacity .22s;z-index:29}
+.drawer-backdrop.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(900px,94vw);background:color-mix(in srgb,var(--bg) 78%,transparent);border-left:1px solid var(--glass-border);
+  backdrop-filter:blur(26px) saturate(1.3);-webkit-backdrop-filter:blur(26px) saturate(1.3);
+  transform:translateX(100%);transition:transform .32s cubic-bezier(.3,.7,.3,1);z-index:30;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
+.drawer.open{transform:translateX(0)}
+.drawer-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--glass-border);background:color-mix(in srgb,var(--surface) 50%,transparent)}
+.drawer-head h2{font-family:var(--display);font-size:16px;font-weight:600;margin:0;flex:1;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.drawer-head h2 .hint{font-family:var(--body);font-weight:400;font-size:12px;color:var(--muted)}
+.drawer-body{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:12px 14px}
+.drawer-body .live{flex:1;display:flex;flex-direction:column;min-height:260px}
+#mood-pill[data-mood="positive"]{background:var(--ok-soft);color:var(--ok)} #mood-pill[data-mood="negative"]{background:var(--bad-soft);color:var(--bad)} #mood-pill[data-mood="neutral"]{background:var(--accent-soft);color:var(--accent)}
+#sip-form{display:grid;grid-template-columns:1fr 1fr;gap:6px 8px;margin-bottom:8px}
+#sip-form label:last-child{grid-column:1 / -1}
+label{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+input{font:inherit;font-size:13.5px;color:var(--ink);background:color-mix(in srgb,var(--surface) 55%,transparent);border:1px solid var(--glass-border);border-radius:10px;padding:7px 10px;min-width:0;transition:border-color .15s,box-shadow .15s,background .15s;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+input:focus-visible{outline:none;border-color:var(--accent);box-shadow:var(--ring);background:var(--surface)}
+code{font-family:var(--mono);font-size:.92em;background:var(--bg);padding:0 3px;border-radius:4px}
+.btns{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
+.pill.state[data-state="registered"]{background:var(--ok-soft);color:var(--ok)}
+.pill.state[data-state="ringing"],.pill.state[data-state="connecting"]{background:var(--warn-soft);color:var(--warn)}
+.pill.state[data-state="connected"]{background:var(--ok);color:#fff}
+.pill.state[data-state="failed"],.pill.state[data-state="error"]{background:var(--bad-soft);color:var(--bad)}
+details summary{font-size:12px;color:var(--muted);cursor:pointer}
+.log{font-family:var(--mono);font-size:11px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 8px;height:110px;overflow:auto;margin:6px 0 0;white-space:pre-wrap}
+#text-form{display:flex;gap:6px}
+#text-form input{flex:1}
+/* caller context box */
+.context-box{margin:8px 0;display:flex;flex-direction:column;gap:5px}
+.ctx-head{font-size:12px;color:var(--ink);font-weight:600}
+.ctx-head .hint{font-weight:400;color:var(--muted)}
+.id-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:2px 0 4px}
+.id-row input{flex:1;min-width:150px}
+.id-row #id-status{flex-basis:100%}
+.context-box textarea{font:inherit;font-size:13px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;resize:vertical;min-height:54px;width:100%;transition:border-color .15s,box-shadow .15s}
+.context-box textarea:focus-visible{outline:none;border-color:var(--accent);box-shadow:var(--ring);background:var(--surface)}
+.ctx-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:11.5px}
+.ctx-foot .chk{margin:0}
+#context-status{color:var(--ok)}
+.field-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink)}
+.field-row[hidden],.col-field[hidden],.hint[hidden]{display:none}
+.field-row input{flex:1;font:inherit;font-size:13px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px;transition:border-color .15s,box-shadow .15s}
+.field-row input:focus-visible{outline:none;border-color:var(--accent);box-shadow:var(--ring);background:var(--surface)}
+.hint.warn{color:var(--warn);font-weight:600}
+.hint.ok{color:var(--ok)}
+.mono-hint{font-family:var(--mono);font-size:10.5px;color:var(--muted);word-break:break-all}
+/* chatbots admin */
+.bots-rows{display:flex;flex-direction:column;gap:5px;margin:2px 0}
+.bot-row{display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+.bot-row-main{display:flex;flex-direction:column;gap:1px;min-width:0}
+.bot-row-main b{font-size:13px;color:var(--ink)}
+.bot-row-sub{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bot-row-btns{display:flex;gap:4px;flex:none}
+.bot-editor{margin-top:4px}
+.bot-editor>summary{cursor:pointer;font-size:12px;color:var(--accent);font-weight:600;list-style:none;padding:3px 0}
+.bot-editor>summary::-webkit-details-marker{display:none}
+.bot-form{display:flex;flex-direction:column;gap:7px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
+.bot-form select{font:inherit;font-size:13px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;flex:1}
+.col-field{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink)}
+.col-field textarea{font:inherit;font-family:var(--mono);font-size:11.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;resize:vertical}
+.bot-advanced>summary{cursor:pointer;font-size:11.5px;color:var(--muted);padding:2px 0}
+.bots-note{font-size:11.5px;color:var(--muted);margin:2px 0 6px}
+.bots-note b{color:var(--ag-scout)}
+/* Messages to/from an EXTERNAL SOURCE are colour-coded so they never read as the caller or the
+   on-call agent: a phone call is pink (📞), an external chatbot is purple (🤖). Outbound (we asked)
+   sits on the right with a dashed edge; inbound (their reply) on the left with a solid source edge. */
+.msg.botout{align-self:flex-end;background:color-mix(in srgb,var(--bot) 14%,var(--bg));border:1px dashed var(--bot)}
+.msg.botin{align-self:flex-start;background:var(--bot-soft);border:1px solid var(--bot);border-left:3px solid var(--bot)}
+.msg.botout .who,.msg.botin .who{color:var(--bot)}
+.msg.phoneout{align-self:flex-end;background:color-mix(in srgb,var(--phone) 14%,var(--bg));border:1px dashed var(--phone);border-bottom-right-radius:3px}
+.msg.phonein{align-self:flex-start;background:var(--phone-soft);border:1px solid var(--phone);border-left:3px solid var(--phone);border-bottom-left-radius:3px}
+.msg.phoneout .who,.msg.phonein .who{color:var(--phone)}
+.msg.phonein.err{border-color:var(--bad);border-left-color:var(--bad)} .msg.phonein.err .who{color:var(--bad)}
+/* when the on-call agent is RELAYING a phone/bot answer back to the caller, tint its left edge to the
+   source so it's clear the words originated elsewhere */
+.msg.agent.relay-phone{border-left-color:var(--phone);background:color-mix(in srgb,var(--phone) 7%,var(--bg))}
+.msg.agent.relay-phone .who{color:var(--phone)}
+.msg.agent.relay-bot{border-left-color:var(--bot);background:color-mix(in srgb,var(--bot) 7%,var(--bg))}
+.msg.agent.relay-bot .who{color:var(--bot)}
+/* the Lead's plan + narrated team updates: Aria's voice, marked as coming from the whole team */
+.msg.agent.relay-team{border-left-color:var(--ag-host,#E8833A);background:color-mix(in srgb,var(--ag-host,#E8833A) 7%,var(--bg))}
+.msg.agent.relay-team .who{color:var(--ag-host,#E8833A)}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0}
+.chip{font:inherit;font-size:12px;padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer;transition:border-color .15s,color .15s,background .15s,box-shadow .15s}
+.chip:hover{border-color:color-mix(in srgb,var(--accent) 50%,var(--line));color:var(--accent);background:color-mix(in srgb,var(--accent) 7%,var(--surface));box-shadow:var(--shadow-sm)}
+.transcript{display:flex;flex-direction:column;gap:12px;max-height:340px;overflow:auto;padding:8px 2px;scroll-behavior:smooth}
+/* newest message drops in from the top with a springy overshoot (it is inserted at the top) */
+@keyframes msg-in{0%{opacity:0;transform:translateY(-12px) scale(.93)}65%{transform:translateY(1px) scale(1.012)}100%{opacity:1;transform:none}}
+.msg{position:relative;max-width:78%;padding:9px 14px;border-radius:18px;font-size:13.5px;line-height:1.5;box-shadow:var(--shadow-sm);animation:msg-in .36s cubic-bezier(.2,.85,.3,1.1);transition:transform .14s,box-shadow .14s}
+.msg:hover{box-shadow:0 6px 18px -8px rgba(10,15,25,.35);transform:translateY(-1px) rotate(.2deg)}
+.msg .bubble-text{display:block;overflow-wrap:anywhere}
+/* caller = the brand gradient, white text, sits right */
+.msg.caller{align-self:flex-end;color:#fff;background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 45%,var(--accent-2)));border:none;border-bottom-right-radius:6px;box-shadow:0 3px 12px -4px color-mix(in srgb,var(--accent) 55%,transparent)}
+.msg.caller .meta{color:rgba(255,255,255,.82)}
+/* agent = softly tinted in the speaker's colour, with their mini Huey mascot alongside */
+.msg.agent{align-self:flex-start;margin-left:38px;background:color-mix(in srgb,var(--c,var(--accent)) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--c,var(--line)) 32%,var(--line));border-bottom-left-radius:6px}
+.msg.partial{opacity:.65;font-style:italic}
+.msg .who{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--c,var(--muted));background:color-mix(in srgb,currentColor 16%,transparent);border-radius:999px;padding:2px 9px 2px 7px;margin-bottom:5px}
+.msg .who::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
+.msg .meta{display:block;font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:4px;opacity:.85}
+.msg-ava{position:absolute;left:-38px;bottom:0;width:30px;height:25px;animation:ava-bob 3.4s ease-in-out infinite alternate;filter:drop-shadow(0 2px 3px rgba(10,15,25,.25))}
+.msg-ava .hy{width:100%;height:100%;display:block}
+.msg-ava .hy-body{fill:var(--c,var(--accent))}
+@keyframes ava-bob{from{transform:translateY(0) rotate(-3deg)}to{transform:translateY(-2.5px) rotate(3deg)}}
+@media (prefers-reduced-motion:reduce){.msg,.msg-ava{animation:none!important}}
+/* Knowledge drawer (web only): two KBs — SOPs and FAQs — list + editor */
+.kb-toggle{--t1:#2DD4BF;--t2:#0D9488}
+.kb-drawer .drawer-body.kb-admin{display:grid;grid-template-columns:270px 1fr;gap:16px;min-height:0}
+.kb-side{display:flex;flex-direction:column;gap:10px;min-height:0}
+.kb-kinds{display:flex;gap:6px}
+.kb-kind{flex:1;padding:9px 10px;font:inherit;font-weight:700;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer}
+.kb-kind.on{background:#0FA3A8;border-color:#0FA3A8;color:#fff}
+.kb-count{display:inline-block;min-width:18px;margin-left:5px;padding:1px 6px;border-radius:999px;background:rgba(127,127,127,.22);font-family:var(--mono);font-size:10.5px}
+.kb-kind.on .kb-count{background:rgba(255,255,255,.25)}
+.kb-list{list-style:none;margin:0;padding:0;overflow:auto;flex:1;min-height:120px;border:1px solid var(--line);border-radius:12px}
+.kb-list li{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.kb-list li:last-child{border-bottom:0}
+.kb-list li:hover{background:color-mix(in srgb,#0FA3A8 10%, transparent)}
+.kb-list li.on{background:color-mix(in srgb,#0FA3A8 18%, transparent);box-shadow:inset 3px 0 0 #0FA3A8}
+.kb-list li b{display:block;font-size:13px}
+.kb-list li small{font-family:var(--mono);font-size:10px;color:var(--muted)}
+.kb-editor{display:flex;flex-direction:column;gap:10px;min-height:0}
+.kb-grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kb-field{display:flex;flex-direction:column;gap:4px}
+.kb-field>span{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.kb-field>span small{text-transform:none;letter-spacing:0;font-weight:400}
+.kb-field input,.kb-field textarea{font:inherit;padding:9px 11px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--text)}
+.kb-field input:disabled{opacity:.55}
+.kb-field.kb-check{flex-direction:row;align-items:center;gap:8px;padding-top:20px}
+/* 13 Nov: document metadata strip (version · created · edited · scorecard · usage · history) */
+.kb-meta{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.kb-meta-row{display:flex;flex-wrap:wrap;gap:6px 18px}
+.kb-meta-cell{display:flex;flex-direction:column;gap:1px;min-width:0}
+.kb-meta-cell>span{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.kb-meta-cell>b{font-size:12.5px;font-weight:600;white-space:nowrap}
+.kb-meta-cell>b i{font-style:normal;font-weight:400;color:var(--muted);margin-left:4px}
+.kb-meta-hist summary{font-size:11px;color:var(--muted);cursor:pointer}
+.kb-meta-hist ul{margin:4px 0 0;padding-left:16px;font-size:11.5px;color:var(--muted)}
+.kb-meta-hist li{margin:1px 0}
+.kb-field.kb-check>span{order:2}
+.kb-body-field{flex:1;min-height:0}
+.kb-body-field textarea{flex:1;min-height:220px;resize:vertical;font-family:var(--mono);font-size:12.5px;line-height:1.5}
+.kb-drawer.kind-knowledge .kb-sop-only{display:none}
+.kb-actions{display:flex;align-items:center;gap:10px}
+.btn.danger{color:#e5484d;border-color:#e5484d}
+@media (max-width:860px){.kb-drawer .drawer-body.kb-admin{grid-template-columns:1fr}}
+
+/* Link cards + QR inside agent bubbles (xApp links, SOP-011) */
+.link-cards{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.link-card{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--accent) 14%, var(--surface));border:1px solid color-mix(in srgb,var(--accent) 45%, transparent);text-decoration:none;color:var(--text);transition:transform .12s ease,border-color .12s ease}
+.link-card:hover{transform:translateY(-1px);border-color:var(--accent)}
+.link-card .lc-icon{font-size:20px}
+.link-card .lc-text{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.link-card .lc-text b{font-size:13px}
+.link-card .lc-text small{font-family:var(--mono);font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link-card .lc-go{font-size:20px;color:var(--accent);font-weight:700}
+.link-qr{display:flex;align-items:center;gap:10px}
+.link-qr img{width:112px;height:112px;border-radius:10px;background:#fff;image-rendering:pixelated}
+.link-qr small{color:var(--muted);font-size:11px}
+/* ---- MCP connections: a clean, professional config panel ------------------- */
+.mcp-admin{gap:9px}
+.mcp-rows{display:flex;flex-direction:column;gap:7px;margin:2px 0}
+.mcp-conn{display:flex;align-items:flex-start;gap:11px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;transition:border-color .15s,box-shadow .15s}
+.mcp-conn:hover{border-color:color-mix(in srgb,var(--accent) 35%,var(--line));box-shadow:var(--shadow-sm)}
+.mcp-conn-ava{flex:none;width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--display);font-weight:700;font-size:14px;color:#fff;background:linear-gradient(135deg,var(--accent),color-mix(in srgb,var(--accent) 45%,var(--ag-scout,#6aa)));box-shadow:var(--shadow-sm)}
+.mcp-conn-main{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.mcp-conn-main b{font-size:13.5px;color:var(--ink);font-weight:600}
+.mcp-conn-sub{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mcp-conn-apps{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px;align-items:center}
+.mcp-live{font-size:9px;font-weight:700;letter-spacing:.05em;color:var(--ok);text-transform:uppercase;margin-right:2px}
+.mcp-app{font-size:10.5px;font-family:var(--mono);color:var(--ink);background:color-mix(in srgb,var(--ok) 12%,var(--bg));border:1px solid color-mix(in srgb,var(--ok) 32%,var(--line));border-radius:999px;padding:1px 8px}
+.mcp-conn-btns{display:flex;gap:4px;flex:none}
+.mcp-editor{margin-top:2px}
+.mcp-editor>summary{cursor:pointer;font-size:12.5px;color:var(--accent);font-weight:600;list-style:none;padding:4px 0;display:flex;align-items:center}
+.mcp-editor>summary::-webkit-details-marker{display:none}
+.mcp-editor>summary::before{content:'';width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;margin-right:8px;transition:transform .15s}
+.mcp-editor[open]>summary::before{transform:rotate(90deg)}
+.mcp-form{display:flex;flex-direction:column;gap:12px;margin-top:9px;padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:12px}
+.mcp-field{display:flex;flex-direction:column;align-items:stretch;gap:5px;min-width:0}
+.mcp-field[hidden]{display:none}
+.mcp-field>label{font-size:10.5px;font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.mcp-field>input,.mcp-field>select,.mcp-field>textarea{width:100%;box-sizing:border-box;font:inherit;font-size:13px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 11px;transition:border-color .15s,box-shadow .15s}
+.mcp-field>textarea{font-family:var(--mono);font-size:11.5px;resize:vertical;min-height:46px}
+.mcp-field>input:focus-visible,.mcp-field>select:focus-visible,.mcp-field>textarea:focus-visible{outline:none;border-color:var(--accent);box-shadow:var(--ring);background:var(--surface)}
+.mcp-grid2{display:grid;grid-template-columns:1fr 150px;gap:12px}
+.mcp-sub{font-size:10.5px;color:var(--muted);line-height:1.4}
+.mcp-note{font-size:11.5px;line-height:1.5;color:var(--ink);background:color-mix(in srgb,var(--accent) 7%,var(--bg));border:1px solid color-mix(in srgb,var(--accent) 22%,var(--line));border-radius:9px;padding:9px 11px;margin-top:3px}
+.mcp-note:empty{display:none}
+.mcp-advanced{display:flex;flex-direction:column;gap:11px}
+.mcp-advanced>summary{cursor:pointer;font-size:11.5px;color:var(--muted);padding:2px 0;list-style:none}
+.mcp-advanced>summary::-webkit-details-marker{display:none}
+.mcp-actions{display:flex;flex-wrap:wrap;gap:7px;align-items:center;margin-top:2px}
+.mcp-status-msg{font-size:11.5px;color:var(--muted)}
+.mcp-status-msg.ok{color:var(--ok);font-weight:600}
+@media (max-width:540px){.mcp-grid2{grid-template-columns:1fr}}
+.sent{display:grid;grid-template-columns:118px 1fr;gap:10px;align-items:center}
+.sent-tile{display:flex;flex-direction:column;gap:2px}
+.sent-score{display:flex;align-items:baseline;gap:6px}
+.sent-score b{font-family:var(--display);font-size:24px;font-variant-numeric:tabular-nums}
+.arrow{font-size:18px} .arrow.up{color:var(--ok)} .arrow.down{color:var(--bad)} .arrow.flat{color:var(--muted)}
+.sent-label{font-size:12px;font-weight:600} .sent-label.positive{color:var(--ok)} .sent-label.negative{color:var(--bad)} .sent-label.neutral{color:var(--muted)}
+.sent-trend{font-size:11.5px;color:var(--muted)}
+#sent-chart{width:100%;height:auto}
+.browser{padding:8px}
+/* Web: keep the browser pane MINIMISED (just the URL bar + a hint) until a page is actually used */
+.browser-idle-hint{display:none;font-size:12.5px;color:var(--muted);padding:6px 4px 2px}
+body:not(.app):not(.browser-live) .col.centre .frame-wrap{height:0;min-height:0;aspect-ratio:auto;border:0;box-shadow:none;margin:0;overflow:hidden}
+body:not(.app):not(.browser-live) .col.centre .browser .urlbar{margin-bottom:0}
+body:not(.app):not(.browser-live) .col.centre .browser .btns.small{display:none}
+body:not(.app):not(.browser-live) .col.centre .browser-idle-hint{display:block}
+/* the "Options on this page" card: shown when the browser is live OR the agent has put a card up
+   (cards-live — e.g. "show my appointments" renders the calendar card with the frame still tucked) */
+body:not(.app):not(.browser-live):not(.cards-live) .col.centre > .card + .card{display:none}
+body:not(.app):not(.browser-live) .col.centre{align-self:start}
+.urlbar{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.urlbar input{flex:1;font-family:var(--mono);font-size:12.5px}
+/* 11 Nov: tab strip — the session's open browser tabs (the agent and you share the same group).
+   Hidden with 0-1 tabs, and whenever the pane itself is minimised. */
+.tab-strip{display:flex;gap:5px;flex-wrap:wrap;align-items:flex-end;padding:0 2px 6px}
+body:not(.browser-live) .col.centre .browser .tab-strip{display:none}
+.tab-chip{display:inline-flex;align-items:center;gap:7px;max-width:220px;padding:4px 9px;border-radius:9px 9px 4px 4px;border:1px solid var(--line);background:var(--surface-2);color:var(--muted);font:inherit;font-size:12px;cursor:pointer;transition:background .15s,color .15s}
+.tab-chip:hover{color:var(--ink)}
+.tab-chip.active{background:var(--surface);color:var(--ink);border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:var(--shadow-sm)}
+.tab-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab-x{opacity:.55;padding:0 1px;font-size:13px;line-height:1}
+.tab-x:hover{opacity:1;color:var(--bad)}
+.tab-new{min-width:28px;justify-content:center;border-radius:9px;font-size:14px;line-height:1}
+.frame-wrap{position:relative;background:#0b0f14;border-radius:12px;overflow:hidden;aspect-ratio:16/10;border:1px solid var(--line);box-shadow:var(--shadow-sm)}
+.frame-wrap img{width:100%;height:100%;object-fit:contain;display:block}
+.frame-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#8c98a8;font-size:13px;text-align:center;padding:20px}
+.frame-wrap img[src]+.frame-empty{display:none}
+.frame-badge{position:absolute;left:8px;top:8px;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:7px;background:rgba(0,0,0,.6);color:#fff;max-width:85%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:none}
+.frame-badge.on{display:block}
+/* 11 Nov: scroll RAIL — right edge of the live view; mirrors the real page's scroll position
+   (frames carry it) and dragging/clicking scrolls the page. Replaced the Scroll up/down buttons. */
+.scroll-rail{position:absolute;top:6px;right:3px;bottom:6px;width:12px;border-radius:7px;background:rgba(255,255,255,.07);z-index:5;cursor:pointer;touch-action:none}
+.scroll-rail:hover{background:rgba(255,255,255,.14)}
+.scroll-thumb{position:absolute;left:2px;right:2px;top:0;height:20%;min-height:24px;border-radius:5px;background:rgba(255,255,255,.42);pointer-events:none;transition:top .18s ease-out}
+.scroll-rail:hover .scroll-thumb,.scroll-rail:active .scroll-thumb{background:rgba(255,255,255,.65)}
+/* Take control: the caller drives the live page from the frame */
+.btn.small-btn.on{background:#2f6df6;color:#fff;border-color:#2f6df6}
+.frame-wrap.controlling{outline:2px solid #2f6df6;outline-offset:-2px}
+.frame-wrap.controlling img{cursor:crosshair}
+.frame-wrap.controlling::after{content:"You're driving — click · scroll · type";position:absolute;right:8px;top:8px;z-index:4;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:7px;background:rgba(47,109,246,.92);color:#fff;pointer-events:none}
+/* live activity overlay: shows what the agent is doing on the page the instant it acts, before the
+   real frame arrives, and clears when the tool returns */
+.frame-activity{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none;z-index:3}
+.frame-activity.on{display:flex}
+.frame-activity::before{content:"";position:absolute;inset:0;background:rgba(6,10,16,.42);backdrop-filter:blur(1px)}
+.frame-activity .spin,.frame-activity #frame-activity-label{position:relative;z-index:1}
+.frame-activity>#frame-activity-label{color:#fff;font-family:var(--mono);font-size:13px;letter-spacing:.2px;margin-left:10px;max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+.frame-activity .spin{width:20px;height:20px;border-radius:50%;border:2.5px solid rgba(255,255,255,.28);border-top-color:#fff;animation:frame-spin .7s linear infinite}
+@keyframes frame-spin{to{transform:rotate(360deg)}}
+.frame-wrap.busy{border-color:var(--accent)}
+.frame-wrap.busy::after{content:"";position:absolute;inset:0;border-radius:8px;box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--accent) 55%,transparent);animation:frame-busy 1.4s ease-in-out infinite;pointer-events:none;z-index:2}
+@keyframes frame-busy{0%,100%{opacity:.25}50%{opacity:.7}}
+.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:8px;max-height:360px;overflow:auto}
+.item{border:1px solid var(--line);border-radius:12px;padding:9px;background:var(--surface);cursor:pointer;display:flex;flex-direction:column;gap:4px;min-height:80px;text-align:left;font:inherit;color:inherit;box-shadow:var(--shadow-sm);transition:border-color .15s,box-shadow .15s,transform .12s}
+.item:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));box-shadow:var(--shadow-md);transform:translateY(-2px)} .item.shown{border-color:var(--deep);box-shadow:0 0 0 1px var(--deep),var(--shadow-md)}
+.item img{width:100%;height:84px;object-fit:cover;border-radius:6px;background:#dfe5ec}
+.item .t{font-weight:600;font-size:13px;line-height:1.25}
+.item .p{font-family:var(--mono);font-size:12px;color:var(--ok)}
+.item .d{font-size:11.5px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.taglist{display:flex;flex-wrap:wrap;gap:5px}
+.tag{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);cursor:default}
+.tag.always{background:var(--bg);color:var(--muted);border:1px solid var(--line)} .tag.retrieval{background:var(--ok-soft);color:var(--ok)} .tag.site{background:var(--warn-soft);color:var(--warn)}
+.kb{display:flex;flex-direction:column;gap:5px;max-height:220px;overflow:auto}
+.kb .hit{font-size:12px;border-left:3px solid var(--ok);padding:3px 8px;background:var(--bg);border-radius:0 6px 6px 0}
+.kb .hit b{display:block;font-size:12px} .kb .hit .s{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.events{list-style:none;margin:0;padding:0;flex:1;min-height:200px;overflow:auto;display:flex;flex-direction:column;gap:3px}
+.ev{font-size:12px;padding:3px 8px;border-radius:6px;border-left:3px solid var(--tool);background:var(--bg)}
+.ev .t{font-family:var(--mono);font-size:10px;color:var(--muted);margin-right:6px}
+.chip-sent{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:999px;margin-left:6px;white-space:nowrap}
+.chip-sent.positive{background:var(--ok-soft);color:var(--ok)} .chip-sent.negative{background:var(--bad-soft);color:var(--bad)} .chip-sent.neutral{background:var(--accent-soft);color:var(--accent)}
+.ev.caller{border-color:var(--you)}
+.ev.you{border-color:var(--you)} .ev.host{border-color:var(--ag-host)} .ev.concierge{border-color:var(--ag-concierge)} .ev.shopper{border-color:var(--ag-shopper)} .ev.scout{border-color:var(--ag-scout)} .ev.local{border-color:var(--ag-local)} .ev.deep{border-color:var(--deep)} .ev.fast{border-color:var(--fast)} .ev.s2s{border-color:var(--s2s)} .ev.bad{border-color:var(--bad);background:var(--bad-soft)} .ev.ok{border-color:var(--ok)}
+.ev code{font-family:var(--mono);font-size:11px}
+.chk{display:flex;flex-direction:row;align-items:center;gap:6px;font-size:12px;margin-top:6px}
+
+/* (11 Nov: the Android app shell is retired — its body.app layout, bottom sheets and
+   press-hold-mute styling are gone. SMS/WhatsApp are the phone surface now.) */
+
+/* Orb as the hero — a bigger, living halo. The idle orb breathes its glow so the screen
+   feels awake even at rest; speaking/listening states already drive colour + intensity. */
+.orb-glow{width:200px;height:200px;filter:blur(22px)}
+.assistant-orb[data-state="idle"] .orb-glow{animation:orb-idle-pulse 6.5s ease-in-out infinite}
+@keyframes orb-idle-pulse{0%,100%{opacity:.18}50%{opacity:.34}}
+@media (prefers-reduced-motion:reduce){.assistant-orb[data-state="idle"] .orb-glow{animation:none}}
+
+/* Suggestion chips + roster chips pick up the glass language. */
+.chip,.chip-agent{backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px)}
+.chip{background:color-mix(in srgb,var(--surface) 55%,transparent);border-color:var(--glass-border)}
+.chip-agent{background:color-mix(in srgb,var(--surface) 55%,transparent);border-color:var(--glass-border)}
+
+/* Edge tabs: a touch of glow so they feel part of the aurora, not bolted on. */
+.drawer-toggle{box-shadow:-4px 0 18px -2px color-mix(in srgb,var(--accent) 40%,rgba(0,0,0,.24))}
+
+/* The frame (live browser) gets a soft accent rim so it reads as a lit screen. */
+.frame-wrap{box-shadow:var(--shadow-md),0 0 0 1px color-mix(in srgb,var(--accent) 12%,transparent)}
+/* =================================================================== */
+
+/* ===================== Huey team: orb-blob + ring ===================== */
+/* The orb is now a Huey blob; the team Hueys ring around it (replacing the roster chips). */
+.orb-stage{position:relative;display:flex;align-items:center;justify-content:center;width:100%;min-height:258px;--ring-r:116px}
+.assistant-orb{position:relative;--c:var(--accent);min-height:0;gap:0}
+.orb-label{position:absolute;bottom:-48px;left:50%;transform:translateX(-50%);white-space:nowrap;z-index:3} /* clear of the bobbing Huey AND the aura/spinner rings */
+
+/* central Huey-orb */
+.orb-huey{position:relative;z-index:2;width:122px;display:block;transform-origin:bottom center;animation:huey-bob 6s ease-in-out infinite} /* web: ~10% smaller; app overrides below */
+.orb-huey .hy{width:100%;height:auto;display:block;filter:drop-shadow(0 14px 22px rgba(0,0,0,.32))}
+.orb-huey .hy-body{fill:var(--c);transition:fill .5s}
+@keyframes huey-bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-11px) rotate(2deg)}}
+@keyframes huey-talk{0%,100%{transform:translateY(-5px) scaleX(1) scaleY(1) rotate(0)}25%{transform:translateY(-12px) scaleX(1.06) scaleY(.93) rotate(-1.6deg)}55%{transform:translateY(-3px) scaleX(.95) scaleY(1.06) rotate(1.6deg)}80%{transform:translateY(-8px) scaleX(1.03) scaleY(.97) rotate(-.6deg)}}
+.assistant-orb[data-state="idle"] .orb-huey{animation-duration:6.6s}
+.assistant-orb[data-state="listening"] .orb-huey{animation:huey-bob 4.4s ease-in-out infinite}
+.assistant-orb[data-state="speaking"] .orb-huey{animation:huey-talk .52s ease-in-out infinite}
+.assistant-orb[data-state="speaking"] .orb-glow{opacity:.95}
+.assistant-orb.held .orb-huey{filter:saturate(.5) brightness(.82)}
+.assistant-orb.held .orb-huey .hy-body{fill:var(--bad)}
+.assistant-orb[data-state="idle"]:hover .orb-huey{animation-duration:3.8s}
+
+/* ring of team Hueys — RETIRED (7 Nov 2026: "too noisy now") — the centre Huey carries all state */
+.roster{display:none!important}
+.huey-mini{position:absolute;left:50%;top:50%;width:60px;margin:-30px 0 0 -30px;pointer-events:auto;--c:var(--accent);
+  transform:rotate(var(--angle,0deg)) translateY(calc(-1 * var(--ring-r,116px))) rotate(calc(-1 * var(--angle,0deg)))}
+.huey-wrap{position:relative;display:block;transform-origin:bottom center;cursor:default;
+  animation:huey-bob var(--dur,6s) ease-in-out infinite;animation-delay:var(--delay,0s);
+  transition:opacity .5s ease, scale .5s cubic-bezier(.3,1.3,.5,1), filter .5s}
+.huey-mini .hy{width:100%;height:auto;display:block;filter:drop-shadow(0 6px 10px rgba(0,0,0,.32))}
+.huey-mini .hy-body{fill:var(--c)}
+.huey-mini .nm{position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-family:var(--mono);font-size:9px;font-weight:500;
+  white-space:nowrap;color:var(--c);opacity:0;transition:opacity .3s;background:color-mix(in srgb,var(--c) 20%,var(--surface));
+  padding:1px 7px;border-radius:999px;border:1px solid color-mix(in srgb,var(--c) 42%,transparent)}
+.huey-mini.idle .huey-wrap{opacity:.48;scale:.88;filter:saturate(.85)}
+.huey-mini.listening .huey-wrap{opacity:.85;scale:.96}
+.huey-mini.working .huey-wrap{opacity:.95;scale:1;animation:huey-bob 2.3s ease-in-out infinite}
+/* The ring only HIGHLIGHTS who's up (name + soft glow); the centre orb is the big talker. */
+.huey-mini.speaking{z-index:3}
+.huey-mini.speaking .huey-wrap{opacity:1;scale:1.1;animation:huey-bob 3.2s ease-in-out infinite}
+.huey-mini.speaking .nm{opacity:1}
+.huey-mini.speaking::before{content:"";position:absolute;inset:-26%;border-radius:50%;z-index:-1;
+  background:radial-gradient(circle,var(--c),transparent 66%);filter:blur(15px);opacity:.5}
+.huey-mini:hover .nm{opacity:1}
+@media (prefers-reduced-motion:reduce){.orb-huey,.huey-wrap{animation:none!important}}
+
+/* headings pick up the Huey display font */
+.card h2,.drawer-head h2,.brand{font-family:var(--display)}
+
+/* ===================================================================== */
+
+/* ===================== Huey: alive (calmer bouncy jelly + hair + belly orb) ===================== */
+/* Layered motion (dialled ~25% calmer): the WRAPPER bounces & sways, the BODY (.hy) squashes &
+   stretches like jelly, the EYES blink & dart, the MOUTH works when talking, the HAIR sways (and
+   stands up when it talks). The central Huey carries the old voice orb, alive in its belly. */
+
+/* body: a springy bounce (wrapper) + a jelly squash/stretch (the svg itself) */
+@keyframes huey-bob{0%{transform:translateY(0) rotate(-3deg)}30%{transform:translateY(-11px) rotate(2deg)}50%{transform:translateY(-16px) rotate(4deg)}70%{transform:translateY(-7px) rotate(-1.5deg)}100%{transform:translateY(0) rotate(-3deg)}}
+@keyframes huey-jelly{0%,100%{transform:scale(1,1) skewX(0deg)}20%{transform:scale(1.08,.92) skewX(-3.5deg)}40%{transform:scale(.92,1.08) skewX(3.5deg)}60%{transform:scale(1.05,.95) skewX(-1.5deg)}80%{transform:scale(.96,1.04) skewX(1deg)}}
+@keyframes huey-shimmer{0%,100%{filter:drop-shadow(0 7px 11px rgba(0,0,0,.32)) saturate(1)}50%{filter:drop-shadow(0 9px 16px rgba(0,0,0,.33)) saturate(1.3) brightness(1.09)}}
+.orb-huey{animation:huey-bob 4.3s ease-in-out infinite}
+.orb-huey .hy{transform-origin:bottom center;animation:huey-jelly 2.8s ease-in-out infinite}
+.assistant-orb[data-state="idle"] .orb-huey{animation:huey-bob 4.3s ease-in-out infinite}
+.huey-wrap{animation:huey-bob var(--dur,4.7s) ease-in-out infinite;animation-delay:var(--delay,0s)}
+.huey-mini .hy{transform-origin:bottom center;animation:huey-jelly 3.2s ease-in-out infinite, huey-shimmer 6s ease-in-out infinite;animation-delay:var(--delay,0s)}
+
+/* eyes: occasional blinks (with the odd double-blink) + darting pupils; mouth ready to talk */
+.hy-eyes{transform-box:fill-box;transform-origin:center;animation:huey-blink 4.6s ease-in-out infinite;animation-delay:var(--delay,0s)}
+.hy-pupil{transform-box:fill-box;transform-origin:center;animation:huey-look 6.5s ease-in-out infinite;animation-delay:var(--delay,0s)}
+.hy-mouth{transform-box:fill-box;transform-origin:center;transition:transform .3s}
+@keyframes huey-blink{0%,37%,42%,66%,71%,100%{transform:scaleY(1)}39.5%{transform:scaleY(.08)}68.5%{transform:scaleY(.08)}}
+@keyframes huey-look{0%,16%{transform:translate(0,0)}28%{transform:translate(1.2px,-.5px)}44%{transform:translate(1.2px,.4px)}60%{transform:translate(-1.2px,.4px)}76%{transform:translate(-1px,-.5px)}100%{transform:translate(0,0)}}
+@keyframes huey-mouth-talk{0%,100%{transform:scaleY(.5)}50%{transform:scaleY(1.45) translateY(.4px)}}
+
+/* idle central Huey body: a LIVING MULTICOLOUR gradient (like the send button) — the SVG gradient
+   rotates (SMIL in index.html) while its stop-colors cycle through the whole Huey palette here. */
+@keyframes hg-cycle{0%{stop-color:var(--ag-host)}20%{stop-color:var(--ag-yellow)}40%{stop-color:var(--ag-shopper)}60%{stop-color:var(--ag-local)}80%{stop-color:var(--accent)}100%{stop-color:var(--ag-host)}}
+#hueyGrad .hg{animation:hg-cycle 11s linear infinite}
+#hueyGrad .hg2{animation-delay:-2.75s}
+#hueyGrad .hg3{animation-delay:-5.5s}
+#hueyGrad .hg4{animation-delay:-8.25s}
+.assistant-orb[data-state="idle"] .orb-huey .hy-body,
+.assistant-orb[data-state="working"] .orb-huey .hy-body{fill:url(#hueyGrad)}
+
+/* speaking: an excited bounce + fast jelly + the mouth really going */
+@keyframes huey-excited{0%{transform:translateY(0) rotate(-5deg)}25%{transform:translateY(-19px) rotate(4deg)}50%{transform:translateY(-5px) rotate(5deg)}75%{transform:translateY(-14px) rotate(-3deg)}100%{transform:translateY(0) rotate(-5deg)}}
+.assistant-orb[data-state="speaking"] .orb-huey{animation:huey-excited .78s ease-in-out infinite}
+.assistant-orb[data-state="speaking"] .orb-huey .hy{animation:huey-jelly 1.25s ease-in-out infinite}
+.assistant-orb[data-state="speaking"] .hy-mouth,
+.huey-mini.speaking .hy-mouth{animation:huey-mouth-talk .34s ease-in-out infinite}
+.assistant-orb[data-state="speaking"] .hy-eyes,
+.huey-mini.speaking .hy-eyes{transform:scaleY(1.13)}
+.huey-mini.speaking .huey-wrap{animation:huey-excited .82s ease-in-out infinite}
+.huey-mini.speaking .hy{animation:huey-jelly 1.3s ease-in-out infinite, huey-shimmer 3.6s ease-in-out infinite}
+
+/* listening: lean in, curious, with a gentle jelly */
+@keyframes huey-lean{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-6px) rotate(6deg)}}
+.assistant-orb[data-state="listening"] .orb-huey{animation:huey-lean 3s ease-in-out infinite}
+.huey-mini.listening .huey-wrap{animation:huey-lean 3.6s ease-in-out infinite;animation-delay:var(--delay,0s)}
+
+@media (prefers-reduced-motion:reduce){.orb-huey,.orb-huey .hy,.huey-wrap,.huey-mini .hy,.hy-eyes,.hy-pupil,.hy-mouth,.orb-huey .hy-body{animation:none!important}}
+
+/* ===================== Orb STATES: unmistakable at a glance ===================== */
+/* IDLE = the calm hue-cycling blob (as before). LISTENING = hand-to-ear: wifi arcs arrive at the
+   raised hand + green sonar rings CONTRACT into the Huey. SPEAKING = sound ripples burst from the
+   mouth + a spinning multicolour halo + an equalizer under its feet. */
+.orb-huey .hy{overflow:visible} /* the signal arcs live just outside the viewBox */
+
+/* --- the aura ring (hidden while idle) --- */
+.orb-aura{position:absolute;left:50%;top:46%;width:188px;height:188px;border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:1;opacity:0;transition:opacity .35s}
+.orb-aura::before,.orb-aura::after{content:'';position:absolute;inset:0;border-radius:50%}
+
+/* --- LISTENING --- */
+.assistant-orb[data-state="listening"] .orb-aura{opacity:1}
+.assistant-orb[data-state="listening"] .orb-aura::before,
+.assistant-orb[data-state="listening"] .orb-aura::after{border:2.5px solid var(--ok);animation:sonar-in 1.7s ease-in infinite;box-shadow:0 0 14px -2px color-mix(in srgb,var(--ok) 70%,transparent)}
+.assistant-orb[data-state="listening"] .orb-aura::after{animation-delay:.85s}
+@keyframes sonar-in{0%{transform:scale(1.28);opacity:0}25%{opacity:.8}100%{transform:scale(.52);opacity:0}}
+.assistant-orb[data-state="listening"] .orb-glow{opacity:.9;background:radial-gradient(circle,color-mix(in srgb,var(--ok) 42%,transparent),transparent 70%)}
+/* signal arcs: fade in out beyond the hand and drift INTO it, staggered outer→inner */
+.hy-ear-waves .ew{fill:none;stroke:var(--ok);stroke-width:1.7;stroke-linecap:round;opacity:0;filter:drop-shadow(0 0 2px color-mix(in srgb,var(--ok) 80%,transparent))}
+.assistant-orb[data-state="listening"] .hy-ear-waves .ew{animation:ear-wave 1.5s ease-in infinite}
+.assistant-orb[data-state="listening"] .hy-ear-waves .ew3{animation-delay:0s}
+.assistant-orb[data-state="listening"] .hy-ear-waves .ew2{animation-delay:.25s}
+.assistant-orb[data-state="listening"] .hy-ear-waves .ew1{animation-delay:.5s}
+@keyframes ear-wave{0%{opacity:0;transform:translate(3px,-3px)}35%{opacity:1}100%{opacity:0;transform:translate(-2px,2px)}}
+/* eyes flick up toward the incoming signal */
+.assistant-orb[data-state="listening"] .hy-pupil{animation:none;transform:translate(.7px,-.5px)}
+.assistant-orb[data-state="listening"] .hy-mouth{transform:scaleY(.55) scaleX(.8)} /* small, attentive */
+
+/* --- SPEAKING: no ring, no mouth ripples — the equalizer under its feet IS the speech signal,
+   on top of the excited bounce, the working mouth and the strong glow. --- */
+/* equalizer under its feet (flanks the body on both sides) */
+.orb-eq{position:absolute;left:50%;bottom:-14px;width:160px;transform:translateX(-50%);display:flex;justify-content:space-between;align-items:flex-end;height:30px;z-index:1;opacity:0;transition:opacity .3s;pointer-events:none}
+/* every bar gets its own vibrant Huey colour (not the speaker's colour) with a bright top + glow */
+.orb-eq i{width:6px;border-radius:3px;height:20%;--bc:var(--accent);background:linear-gradient(180deg,color-mix(in srgb,var(--bc) 50%,#fff),var(--bc));box-shadow:0 0 11px -1px color-mix(in srgb,var(--bc) 85%,transparent)}
+.orb-eq i:nth-child(1){--bc:var(--ag-host,#F4603A)}
+.orb-eq i:nth-child(2){--bc:var(--ag-yellow,#FBCC2A)}
+.orb-eq i:nth-child(3){--bc:var(--ag-shopper,#12B76A)}
+.orb-eq i:nth-child(4){--bc:var(--ag-local,#17D4E8)}
+.orb-eq i:nth-child(5){--bc:var(--accent,#5C59E8)}
+.orb-eq i:nth-child(6){--bc:var(--ag-scout,#F53B7B)}
+.orb-eq i:nth-child(7){--bc:var(--ag-yellow,#FBCC2A)}
+.orb-eq i:nth-child(8){--bc:var(--ag-shopper,#12B76A)}
+.orb-eq i:nth-child(9){--bc:var(--ag-host,#F4603A)}
+.assistant-orb[data-state="speaking"] .orb-eq{opacity:1}
+.assistant-orb[data-state="speaking"] .orb-eq i{animation:eq-bounce .62s ease-in-out infinite}
+.orb-eq i:nth-child(1),.orb-eq i:nth-child(9){animation-delay:.30s!important;animation-duration:.74s!important}
+.orb-eq i:nth-child(2),.orb-eq i:nth-child(8){animation-delay:.15s!important;animation-duration:.58s!important}
+.orb-eq i:nth-child(3),.orb-eq i:nth-child(7){animation-delay:.05s!important;animation-duration:.66s!important}
+.orb-eq i:nth-child(4),.orb-eq i:nth-child(6){animation-delay:.22s!important}
+@keyframes eq-bounce{0%,100%{height:18%}50%{height:100%}}
+
+/* --- WORKING / processing: a SEGMENTED RAINBOW ring spins one way, a dotted ring counter-rotates,
+   and three glowing comet dots orbit at their own speeds — while the (gradient) Huey squints. --- */
+.assistant-orb[data-state="working"] .orb-aura{opacity:1}
+.assistant-orb[data-state="working"] .orb-aura::before{
+  background:repeating-conic-gradient(from 0deg,
+    var(--ag-host) 0deg 16deg, transparent 16deg 24deg,
+    var(--ag-yellow,#FBCC2A) 24deg 40deg, transparent 40deg 48deg,
+    var(--ag-shopper,#12B76A) 48deg 64deg, transparent 64deg 72deg,
+    var(--ag-local,#17D4E8) 72deg 88deg, transparent 88deg 96deg,
+    var(--accent) 96deg 112deg, transparent 112deg 120deg);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 9px),#000 calc(100% - 8px));
+  animation:spin-cw 2.1s linear infinite;filter:blur(.3px) drop-shadow(0 0 10px color-mix(in srgb,var(--accent) 55%,transparent))}
+.assistant-orb[data-state="working"] .orb-aura::after{inset:14px;border:2.5px dotted color-mix(in srgb,var(--ag-yellow,#FBCC2A) 85%,#fff);animation:spin-ccw 3.1s linear infinite;opacity:.8}
+@keyframes spin-cw{to{transform:rotate(360deg)}}
+@keyframes spin-ccw{to{transform:rotate(-360deg)}}
+.assistant-orb[data-state="working"] .orb-glow{opacity:.8;background:radial-gradient(circle,color-mix(in srgb,var(--accent) 40%,transparent),transparent 70%)}
+.assistant-orb[data-state="working"] .orb-huey{animation:huey-bob 2.3s ease-in-out infinite} /* busy little bounce */
+.assistant-orb[data-state="working"] .hy-eyes{animation:none;transform:scaleY(.72)} /* concentrating squint */
+.assistant-orb[data-state="working"] .hy-pupil{animation:huey-look 2.6s ease-in-out infinite} /* eyes darting over the work */
+.assistant-orb[data-state="working"] .orb-label{color:var(--accent)}
+/* comet dots: three glowing Huey-colour satellites orbiting at different radii and speeds */
+.orb-spin{position:absolute;left:50%;top:46%;width:0;height:0;z-index:1;opacity:0;transition:opacity .3s;pointer-events:none;--orb-r:94px}
+.assistant-orb[data-state="working"] .orb-spin{opacity:1}
+.orb-spin i{position:absolute;left:0;top:0;width:0;height:0;animation:spin-cw linear infinite}
+.orb-spin i::before{content:'';position:absolute;border-radius:50%}
+.orb-spin i:nth-child(1){animation-duration:1.7s}
+.orb-spin i:nth-child(1)::before{width:9px;height:9px;left:-4.5px;top:calc(-1 * var(--orb-r) - 9px);background:var(--ag-host);box-shadow:0 0 12px 2px color-mix(in srgb,var(--ag-host) 75%,transparent)}
+.orb-spin i:nth-child(2){animation-duration:2.6s;animation-direction:reverse}
+.orb-spin i:nth-child(2)::before{width:7px;height:7px;left:-3.5px;top:calc(-1 * var(--orb-r) + 8px);background:var(--ag-yellow,#FBCC2A);box-shadow:0 0 10px 2px color-mix(in srgb,var(--ag-yellow,#FBCC2A) 75%,transparent)}
+.orb-spin i:nth-child(3){animation-duration:3.4s}
+.orb-spin i:nth-child(3)::before{width:6px;height:6px;left:-3px;top:calc(-1 * var(--orb-r) - 1px);background:var(--ag-local,#17D4E8);box-shadow:0 0 10px 2px color-mix(in srgb,var(--ag-local,#17D4E8) 75%,transparent)}
+
+/* --- MUTED: the mic is off and she CANNOT hear you. Everything about this state reads
+   "switched off": Huey drains to grey with eyes shut, a static red dashed ring replaces the
+   live animations, and a red slashed-mic badge sits on the orb. Label says it in words. --- */
+.assistant-orb[data-state="muted"] .orb-huey{animation:none;filter:grayscale(.85) brightness(.75)}
+.assistant-orb[data-state="muted"] .hy-eyes{animation:none;transform:scaleY(.12)} /* eyes shut */
+.assistant-orb[data-state="muted"] .hy-mouth{transform:scaleY(.35) scaleX(.6)}   /* small flat mouth */
+.assistant-orb[data-state="muted"] .orb-swirl{filter:saturate(.2) brightness(.6)}
+.assistant-orb[data-state="muted"] .orb-glow{opacity:.35;background:radial-gradient(circle,color-mix(in srgb,var(--bad) 38%,transparent),transparent 70%)}
+.assistant-orb[data-state="muted"] .orb-aura{opacity:1}
+.assistant-orb[data-state="muted"] .orb-aura::before{border:2.5px dashed color-mix(in srgb,var(--bad) 85%,#fff);animation:none;box-shadow:0 0 12px -2px color-mix(in srgb,var(--bad) 60%,transparent)}
+.assistant-orb[data-state="muted"] .orb-aura::after{border:none;animation:none}
+.assistant-orb[data-state="muted"] .orb-label{color:var(--bad);font-weight:700}
+.assistant-orb[data-state="muted"]::after{
+  content:"";position:absolute;right:14%;top:8%;width:34px;height:34px;border-radius:50%;z-index:4;
+  background-color:var(--bad);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Crect x='9' y='3' width='6' height='11' rx='3' fill='white' stroke='none'/%3E%3Cpath d='M5.5 11.5a6.5 6.5 0 0 0 13 0'/%3E%3Cpath d='M12 18v3.2'/%3E%3Cpath d='M4 4l16 16'/%3E%3C/svg%3E");
+  background-size:62% 62%;background-position:center;background-repeat:no-repeat;
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 30%,transparent),0 4px 14px -4px var(--bad);
+  animation:muted-pulse 2.2s ease-in-out infinite}
+@keyframes muted-pulse{0%,100%{box-shadow:0 0 0 3px color-mix(in srgb,var(--bad) 30%,transparent),0 4px 14px -4px var(--bad)}50%{box-shadow:0 0 0 7px color-mix(in srgb,var(--bad) 14%,transparent),0 4px 14px -4px var(--bad)}}
+body:has(.assistant-orb[data-state="muted"]){--room:color-mix(in srgb,var(--bad) 26%,transparent)}
+.orb-float .assistant-orb[data-state="muted"]::after{width:24px;height:24px} /* badge scales with the smaller chat-head */
+
+@media (prefers-reduced-motion:reduce){.orb-aura,.orb-aura::before,.orb-aura::after,.orb-eq i,.orb-spin,.orb-spin i,.hy-ear-waves .ew{animation:none!important;opacity:0!important}#hueyGrad .hg{animation:none!important}.assistant-orb[data-state="muted"]::after{animation:none!important}.assistant-orb[data-state="muted"] .orb-aura{opacity:1!important}.assistant-orb[data-state="muted"] .orb-aura::before{animation:none!important;opacity:1!important}}
+/* ================================================================================ */
+
+/* ===================== Buttons: flowing multi-colour gradient ===================== */
+/* The send (primary) button already glows; now every button carries the same living
+   colour transition — vivid on solid buttons, a quiet wash on ghosts that lifts on hover. */
+@keyframes btn-flow{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+.btn.primary{background:linear-gradient(90deg,var(--ag-host),var(--ag-scout),var(--accent),var(--ag-local),var(--ag-shopper),var(--ag-host));background-size:320% 100%;animation:btn-flow 8s ease-in-out infinite;color:#fff}
+.btn.danger{background:linear-gradient(90deg,var(--bad),var(--ag-scout),var(--bad));background-size:220% 100%;animation:btn-flow 6s ease-in-out infinite;color:#fff}
+.btn:not(.ghost):not(.primary):not(.danger){
+  background-image:linear-gradient(90deg,color-mix(in srgb,var(--ag-host) 18%,var(--glass-2)),color-mix(in srgb,var(--accent) 18%,var(--glass-2)),color-mix(in srgb,var(--ag-local) 18%,var(--glass-2)),color-mix(in srgb,var(--ag-scout) 18%,var(--glass-2)),color-mix(in srgb,var(--ag-host) 18%,var(--glass-2)));
+  background-size:320% 100%;animation:btn-flow 11s ease-in-out infinite}
+.btn.ghost{background-image:linear-gradient(90deg,transparent,transparent);background-size:320% 100%;transition:background .18s,border-color .18s,box-shadow .18s,transform .08s}
+.btn.ghost:hover{background-image:linear-gradient(90deg,color-mix(in srgb,var(--ag-host) 16%,transparent),color-mix(in srgb,var(--accent) 16%,transparent),color-mix(in srgb,var(--ag-local) 16%,transparent),color-mix(in srgb,var(--ag-scout) 16%,transparent),color-mix(in srgb,var(--ag-host) 16%,transparent));animation:btn-flow 8s ease-in-out infinite}
+#sound[aria-pressed="true"]{background:var(--ok);background-image:none;animation:none}
+@media (prefers-reduced-motion:reduce){.btn,.btn.primary,.btn.danger,.btn.ghost:hover{animation:none!important}}
+
+/* ---------- floating Huey (chat-head) + borderless team ---------- */
+/* The orb and call controls live in a fixed, draggable widget (app.js moves the nodes in).
+   Default perch: left edge, vertically centred (widget is ~300px tall). */
+.orb-float{position:fixed;left:34px;top:calc(50vh - 150px);z-index:60;display:flex;flex-direction:column;align-items:center;gap:4px;touch-action:none;user-select:none;-webkit-user-select:none}
+.orb-float:empty{display:none}
+.orb-float .assistant-orb{flex:none;min-height:0;margin-top:0}
+/* Chat-head sizing (10 Nov): Huey ~35% smaller than the in-card size, and the TAP TO TALK label
+   pulled ~50% closer to her feet; the controls follow her up. */
+.orb-float .orb-huey{width:80px}
+.orb-float .orb-label{bottom:-24px}
+.orb-float .call-controls{margin-top:28px} /* clear of the orb's absolute label */
+.orb-float.dragging{cursor:grabbing}
+.orb-float.dragging .orb-huey,.orb-float.dragging .orb-aura{animation-play-state:paused}
+/* The team card is now just an invisible anchor — no border, no panel, no heading on the web. */
+.team.card{background:transparent;border:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;padding:6px 0}
+.team.card>h2{display:none}
+.orb-stage{min-height:0}
+/* Mute is an icon button: live mic normally, red slashed mic while muted. */
+.mute-btn{width:42px;height:42px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center}
+.mute-btn:disabled{display:none} /* no call → nothing to mute; the row shows just the handset */
+.mute-btn svg{width:20px;height:20px;flex:none}
+.mute-btn .mic-off{display:none}
+.mute-btn.is-muted .mic-on{display:none}
+.mute-btn.is-muted .mic-off{display:block}
+.mute-btn.is-muted{background:var(--bad)!important;background-image:none!important;border-color:var(--bad);color:#fff;animation:none}
+/* Call toggle: ONE icon connects and disconnects — green handset idle, red handset-down in a call */
+.call-btn{width:42px;height:42px;border-radius:50%;padding:0;display:inline-flex;align-items:center;justify-content:center;background:var(--ok)!important;background-image:none!important;border-color:var(--ok);color:#fff}
+.call-btn svg{width:20px;height:20px;flex:none}
+.call-btn .ph-end{display:none}
+.call-btn.live{background:var(--bad)!important;border-color:var(--bad)}
+.call-btn.live .ph-start{display:none}
+.call-btn.live .ph-end{display:block}
+.call-btn:hover{filter:brightness(1.12)}
+.pill.state{cursor:pointer}
+/* The browser-controls row shows only while YOU are driving — click the live view to take
+   control, tap Huey to hand it back */
+.browser-controls{display:none!important}
+body.controlling .browser-controls{display:flex!important}
+.frame-wrap:not(.controlling) #frame{cursor:pointer}
+
+/* ---------- Text drawer (web): the console docks right, minimized to the TOP edge tab ---------- */
+.text-toggle{--t1:#3DFFB4;--t2:#00A868}
+#text-toggle .dt-badge{color:var(--ag-shopper,#12B76A)}
+.text-drawer{width:min(560px,94vw)}
+.text-drawer .drawer-body{display:flex;flex-direction:column;min-height:0;flex:1}
+.text-drawer .drawer-body .card{flex:1;display:flex;flex-direction:column;min-height:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;padding:4px 2px}
+.text-drawer .drawer-body .card>h2{display:none} /* the drawer head already says Text */
+.text-drawer .transcript{flex:1;min-height:0;overflow:auto}
+/* With Text docked, the left column is empty — the browser takes the full width. */
+.col.left{display:none}
+#col-resizer{display:none}
+main.grid{grid-template-columns:minmax(0,1fr)}
+
+/* ===================== Tasks drawer: the async text channel ===================== */
+/* An inbox of long-running conversations with Aria (web edge tab + app button). */
+.tasks-toggle{--t1:#FFAE3D;--t2:#FF5E00}
+.tasks-drawer{width:min(880px,96vw)}
+.tasks-drawer .drawer-body.tasks-body{display:grid;grid-template-columns:286px 1fr;gap:14px;min-height:0;overflow:hidden}
+.task-side{display:flex;flex-direction:column;min-height:0}
+.task-list{list-style:none;margin:0;padding:0;overflow:auto;display:flex;flex-direction:column;gap:7px;min-height:0}
+.task-none{padding:10px 4px}
+.task-row{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--glass-border);border-radius:12px;
+  background:color-mix(in srgb,var(--surface) 72%,transparent);cursor:pointer;transition:border-color .15s,background .15s}
+.task-row:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--glass-border))}
+.task-row.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,var(--surface))}
+.task-row.is-done{opacity:.6}
+.task-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.task-row-main b{font-size:13.5px;line-height:1.25;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.task-row-main small{color:var(--muted);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-row.unread .task-row-main b{color:var(--ink)}
+.task-row.unread .task-row-main small{color:color-mix(in srgb,var(--ink) 78%,var(--muted));font-weight:600}
+.task-row-side{display:flex;flex-direction:column;align-items:flex-end;gap:5px;flex:none}
+.task-row-side time{color:var(--muted);font-size:10.5px;font-family:var(--mono)}
+.task-new-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+/* status dot: amber pulsing = Aria working · accent = your turn · green = done */
+.task-dot{width:9px;height:9px;border-radius:50%;flex:none;margin-top:5px;background:var(--muted)}
+.task-dot.working{background:var(--warn);animation:taskpulse 1.6s ease-in-out infinite}
+.task-dot.waiting{background:var(--accent)}
+.task-dot.done{background:var(--ok)}
+@keyframes taskpulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--warn) 55%,transparent)}50%{box-shadow:0 0 0 5px transparent}}
+/* the thread */
+.task-main{display:flex;flex-direction:column;min-height:0;gap:9px}
+.task-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:2px 2px 0}
+.task-head-main{flex:1;min-width:0;display:flex;align-items:center;gap:9px}
+.task-head-main b{font-size:14.5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.task-pill[data-status="working"]{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,var(--glass-border))}
+.task-pill[data-status="waiting"]{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--glass-border))}
+.task-pill[data-status="done"]{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,var(--glass-border))}
+.task-head-btns{display:flex;gap:7px}
+.task-thread{flex:1;min-height:200px;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:10px;
+  border:1px solid var(--glass-border);border-radius:14px;background:color-mix(in srgb,var(--surface) 55%,transparent)}
+.task-empty{padding:14px 10px;line-height:1.55}
+.tmsg{max-width:86%;display:flex;flex-direction:column;gap:3px;padding:8px 12px;border-radius:14px;font-size:13.5px;line-height:1.45}
+.tmsg.owner{align-self:flex-end;background:color-mix(in srgb,var(--accent) 16%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--glass-border));border-bottom-right-radius:4px}
+.tmsg.aria{align-self:flex-start;background:var(--surface);border:1px solid var(--glass-border);border-bottom-left-radius:4px}
+.tmsg-text{white-space:pre-wrap;word-break:break-word}
+.tmsg-meta{font-size:10px;color:var(--muted);font-family:var(--mono)}
+.tmsg.owner .tmsg-meta{align-self:flex-end}
+/* Aria-is-working row: three breathing dots at the foot of the thread */
+.task-typing{align-self:flex-start;display:flex;align-items:center;gap:5px;padding:8px 12px;border-radius:14px;border:1px dashed var(--glass-border);color:var(--muted);font-size:11.5px}
+.task-typing i{width:6px;height:6px;border-radius:50%;background:var(--warn);animation:taskdots 1.1s ease-in-out infinite}
+.task-typing i:nth-child(2){animation-delay:.18s}
+.task-typing i:nth-child(3){animation-delay:.36s}
+.task-typing span{margin-left:3px}
+@keyframes taskdots{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+.task-form{display:flex;gap:8px}
+.task-form input{flex:1;min-width:0}
+@media (max-width:860px){
+  .tasks-drawer .drawer-body.tasks-body{grid-template-columns:1fr;grid-template-rows:minmax(84px,26vh) 1fr}
+  .task-list{flex-direction:column}
+}
+/* The orb BUTTON's box is far taller than the visible Huey (the glow/aura spans stack inside it),
+   and at z-index 60 that invisible area swallowed taps on whatever sat beneath (and a miss there
+   STARTS A CALL). Hit area = what you can see. */
+#orb-float{pointer-events:none}
+#orb-float .orb-huey,#orb-float .orb-label,#orb-float .call-controls{pointer-events:auto}
+/* ===================================================================== */
+
+/* ---------- Toasts: transient notifications (task started / Aria update) ---------- */
+#toasts{position:fixed;top:14px;right:14px;z-index:80;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none}
+.toast{display:flex;gap:10px;align-items:center;max-width:min(380px,calc(100vw - 28px));padding:10px 14px;border-radius:14px;
+  background:color-mix(in srgb,var(--surface) 88%,transparent);border:1px solid var(--glass-border);box-shadow:var(--shadow-lg);
+  backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);
+  cursor:pointer;pointer-events:auto;opacity:0;transform:translateX(16px);transition:opacity .28s,transform .28s}
+.toast.in{opacity:1;transform:translateX(0)}
+.toast.out{opacity:0;transform:translateX(16px)}
+.toast-icon{font-size:17px;line-height:1}
+.toast-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.toast-main b{font-size:13px;color:var(--ink)}
+.toast-main small{font-size:12px;color:var(--muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+
+/* ---------- Task-thread images: screenshots + sketches attached by Aria ---------- */
+.tmsg-media{display:block;margin-top:6px}
+.tmsg-img{display:block;max-width:100%;max-height:320px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:zoom-in}
+.tmsg-text:empty{display:none}

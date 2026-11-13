@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Personal Voice Browser — how it works</title>
+<!-- 13 Nov 2026: the high-level architecture summary. Served standalone at /architecture.html, exported
+     to /architecture.pdf (npm run build:arch) and INLINED into every shareable recap (public/app.js
+     buildShareable reads <main id="arch"> and <style id="arch-style">). Keep every rule prefixed .ax-
+     so it never fights the recap's own CSS. -->
+<style id="arch-style">
+.ax{--ax-bg:#0b0f1a;--ax-card:#141a2b;--ax-ink:#eef2fb;--ax-muted:#9aa6bf;--ax-line:#243049;--ax-accent:#6fa9f2;--ax-orange:#f59e0b;--ax-pink:#f472b6;--ax-green:#34d399;--ax-violet:#b89bff;color:var(--ax-ink);font-family:'Segoe UI',system-ui,sans-serif;line-height:1.5}
+.ax h3{font-size:14px;color:var(--ax-muted);text-transform:uppercase;letter-spacing:.05em;margin:22px 0 8px;font-weight:600}
+.ax p{margin:0 0 10px;font-size:14.5px}
+.ax .ax-lead{font-size:16px}
+.ax .ax-card{background:var(--ax-card);border:1px solid var(--ax-line);border-radius:12px;padding:12px 14px;margin:10px 0;break-inside:avoid}
+.ax .ax-diagram{width:100%;height:auto;display:block;border-radius:12px;background:#0f1526;border:1px solid var(--ax-line)}
+.ax ul{margin:0 0 10px;padding-left:20px;font-size:14px}
+.ax li{margin:3px 0}
+.ax table{width:100%;border-collapse:collapse;font-size:13.5px}
+.ax th,.ax td{text-align:left;vertical-align:top;padding:7px 8px;border-top:1px solid var(--ax-line)}
+.ax th{color:var(--ax-muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;border-top:0}
+.ax td b{color:var(--ax-ink)}
+.ax tr{break-inside:avoid}
+.ax .ax-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.ax .ax-tbl{overflow-x:auto}
+.ax a{color:var(--ax-accent)}
+.ax .ax-results{display:flex;flex-wrap:wrap;gap:8px}
+.ax .ax-res{background:#0f1526;border:1px solid var(--ax-line);border-radius:10px;padding:6px 10px;font-size:13px}
+.ax .ax-res b{display:block;color:var(--ax-green);font-size:15px}
+.ax .ax-callout{border-left:3px solid var(--ax-orange);padding-left:12px;margin:10px 0;font-size:14.5px}
+.ax .ax-chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+.ax .ax-chip{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--ax-line);background:#0f1526}
+.ax .ax-chip i{font-style:normal;font-weight:700;margin-right:5px}
+.ax .c-web{color:#6fa9f2}.ax .c-voice{color:#f472b6}.ax .c-text{color:#34d399}.ax .c-tool{color:#f59e0b}.ax .c-chat{color:#b89bff}.ax .c-mem{color:#22d3ee}
+@media (max-width:520px){.ax .ax-grid{grid-template-columns:1fr}}
+</style>
+<style>
+body{margin:0;background:linear-gradient(160deg,#0b0f1a,#121a30);color:#eef2fb;font-family:'Segoe UI',system-ui,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:34px max(16px,env(safe-area-inset-right,0px)) 60px max(16px,env(safe-area-inset-left,0px))}
+.head{display:flex;align-items:center;gap:14px;margin-bottom:6px;flex-wrap:wrap}
+.orb{width:56px;height:56px;border-radius:50%;background:conic-gradient(from 0deg,#6fa9f2,#22d3ee,#8b5cf6,#ec4899,#6fa9f2);box-shadow:0 0 30px -4px #6fa9f2aa;flex:none}
+h1{font-size:23px;margin:0;font-weight:700}.sub{color:#9aa6bf;font-size:14px;margin:2px 0 0}
+.links{margin-left:auto;font-size:13px}.links a{color:#6fa9f2;margin-left:12px}
+.foot{margin-top:40px;padding-top:18px;border-top:1px solid #243049;color:#9aa6bf;font-size:13px}
+@media print{
+  @page{size:A4;margin:14mm 12mm}
+  body{background:#0b0f1a !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .wrap{max-width:none;padding:0}
+  .links{display:none}
+  .ax h3{break-after:avoid}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="head"><div class="orb"></div><div><h1>Personal Voice Browser — how it works</h1><p class="sub">One call — phone or browser — a team of AI agents, a shared screen, and work that keeps going after you hang up</p></div><div class="links"><a href="/architecture.pdf" target="_blank" rel="noopener">Download PDF</a><a href="/" target="_blank" rel="noopener">Open the console</a></div></div>
+
+<main id="arch" class="ax">
+<p class="ax-lead">The Personal Voice Browser is an assistant you talk to — ring its phone number, or press the orb in your browser. The voice that answers (<b>Aria</b>) chats like a mate, and behind her a small team of specialist agents works out what needs doing, browses the real web, phones people and businesses, talks to other chatbots, texts and WhatsApps you, mirrors every page onto a screen you can watch, keeps working after you hang up, and remembers what it learned for next time.</p>
+
+<h3>Why it matters — reaching the world's AI agents without integrations built in advance</h3>
+<div class="ax-card">
+<p>Every service is putting an AI agent on its front door: a voice agent on the phone line, a chatbot on the website, a booking form, a text line. There will soon be far more of them than anyone could wire up with APIs or MCP connectors at build time — and most of them will never publish one. An assistant that can only use integrations it was given before runtime will be stuck.</p>
+<p class="ax-callout"><b>The idea the Personal Voice Browser demonstrates:</b> give the assistant the same channels a person has — the web, the phone, chat windows, text — and let it <b>reason at runtime</b> about which interactions a job needs and <b>discover the channel each counterpart actually exposes</b>: a web page to read, a form to fill, a phone number to ring (and a human, a phone menu, or another AI on the other end), a chat widget to ask, a mobile to text. If a proper integration exists (a calendar via Zapier/MCP) it uses that; if not, it converses the way a person would — and brings the result back.</p>
+<p>So the same assistant can deal with a restaurant whose only interface is a booking page and a phone line, a bank whose front door is a voice agent, and a courier with a webchat — none of which were integrated in advance. The call-inside-a-call in these showcases is exactly that: Aria rings a number read off a web page and finds <b>another AI</b> (Sunny, a receptionist agent) answering — and simply talks to it.</p>
+<svg class="ax-diagram" viewBox="0 0 900 204" role="img" aria-label="The runtime discovery loop: a request is broken into interactions; for each, use an integration if one exists, otherwise discover the channel the counterpart exposes and converse there; results come back to the caller and into memory">
+  <defs><marker id="ax-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa6bf"/></marker>
+  <style>.axb2{fill:#141a2b;stroke:#243049;stroke-width:1.2}.axd{fill:#1a2340;stroke:#f59e0b;stroke-width:1.3}.axt2{font:600 12.5px 'Segoe UI',system-ui,sans-serif;fill:#eef2fb}.axs2{font:11px 'Segoe UI',system-ui,sans-serif;fill:#9aa6bf}.axl3{stroke:#9aa6bf;stroke-width:1.3;fill:none;marker-end:url(#ax-ar2)}.axlab2{font:10.5px 'Segoe UI',system-ui,sans-serif;fill:#9aa6bf}</style></defs>
+  <rect class="axb2" x="14" y="60" width="130" height="64" rx="10"/>
+  <text class="axt2" x="79" y="85" text-anchor="middle">1 · The request</text>
+  <text class="axs2" x="79" y="102" text-anchor="middle">"book the team dinner,</text>
+  <text class="axs2" x="79" y="115" text-anchor="middle">tell everyone, remind me"</text>
+  <rect class="axb2" x="172" y="60" width="150" height="64" rx="10"/>
+  <text class="axt2" x="247" y="85" text-anchor="middle">2 · Reason the plan</text>
+  <text class="axs2" x="247" y="102" text-anchor="middle">which interactions, with whom,</text>
+  <text class="axs2" x="247" y="115" text-anchor="middle">in what order, what can wait</text>
+  <polygon class="axd" points="420,52 500,92 420,132 340,92"/>
+  <text class="axt2" x="420" y="88" text-anchor="middle">3 · Integration</text>
+  <text class="axt2" x="420" y="103" text-anchor="middle">available?</text>
+  <rect class="axb2" x="520" y="14" width="236" height="50" rx="10"/>
+  <text class="axt2" x="638" y="35" text-anchor="middle">Use the tool (MCP)</text>
+  <text class="axs2" x="638" y="52" text-anchor="middle">calendar · SMS gateway · email</text>
+  <rect class="axb2" x="520" y="86" width="236" height="96" rx="10"/>
+  <text class="axt2" x="638" y="107" text-anchor="middle">Discover the channel, converse</text>
+  <text class="axs2" x="638" y="124" text-anchor="middle">web page / form → browse, fill</text>
+  <text class="axs2" x="638" y="138" text-anchor="middle">phone → ring: human, menu or AI</text>
+  <text class="axs2" x="638" y="152" text-anchor="middle">chat widget → ask the bot</text>
+  <text class="axs2" x="638" y="166" text-anchor="middle">mobile → text</text>
+  <rect class="axb2" x="774" y="60" width="116" height="64" rx="10"/>
+  <text class="axt2" x="832" y="85" text-anchor="middle">4 · Bring it back</text>
+  <text class="axs2" x="832" y="102" text-anchor="middle">tell the caller, show the</text>
+  <text class="axs2" x="832" y="115" text-anchor="middle">screen, text, remember</text>
+  <line class="axl3" x1="144" y1="92" x2="172" y2="92"/>
+  <line class="axl3" x1="322" y1="92" x2="340" y2="92"/>
+  <line class="axl3" x1="470" y1="70" x2="520" y2="42"/><text class="axlab2" x="486" y="50">yes</text>
+  <line class="axl3" x1="470" y1="114" x2="520" y2="108"/><text class="axlab2" x="486" y="124">no</text>
+  <line class="axl3" x1="756" y1="39" x2="794" y2="60"/>
+  <line class="axl3" x1="756" y1="128" x2="794" y2="124"/>
+  <path class="axl3" d="M832 124 C832 192 330 198 247 124" />
+  <text class="axlab2" x="520" y="200" text-anchor="middle">next interaction · or a background task after the call</text>
+</svg>
+</div>
+
+<h3>Process flow — one real example, step by step</h3>
+<div class="ax-card">
+<p>Jordan rings Aria: <i>"Team dinner Friday at quarter to seven, four of us, one coeliac. Compare two places, book the better one, confirm it with them, put it in my calendar, text the others the meeting point, and work out the walk from the bar — message me that later."</i> Nothing about the restaurant, its booking system or its phone line was integrated in advance. Here is how the team reasons its way through, and which channel each step lands on:</p>
+<div class="ax-chips">
+  <span class="ax-chip c-web"><i>■</i>web page / form</span><span class="ax-chip c-voice"><i>■</i>voice call</span><span class="ax-chip c-chat"><i>■</i>chat bot</span><span class="ax-chip c-text"><i>■</i>text / WhatsApp</span><span class="ax-chip c-tool"><i>■</i>integration (MCP)</span><span class="ax-chip c-mem"><i>■</i>screen &amp; memory</span>
+</div>
+<svg class="ax-diagram" viewBox="0 0 900 400" role="img" aria-label="Seven steps of the team dinner example, each labelled with the channel used">
+  <defs><style>.axs3{font:11px 'Segoe UI',system-ui,sans-serif;fill:#9aa6bf}.axt3{font:600 12.5px 'Segoe UI',system-ui,sans-serif;fill:#eef2fb}.axn{font:700 13px 'Segoe UI',system-ui,sans-serif;fill:#0b0f1a}.axbox{fill:#141a2b;stroke:#243049;stroke-width:1.2}.axch{font:700 10.5px 'Segoe UI',system-ui,sans-serif;letter-spacing:.04em}.axsp{stroke:#243049;stroke-width:1.2}</style></defs>
+  <line class="axsp" x1="40" y1="28" x2="40" y2="385"/>
+  <!-- step rows -->
+  <g>
+    <circle cx="40" cy="48" r="12" fill="#6fa9f2"/><text class="axn" x="40" y="52" text-anchor="middle">1</text>
+    <rect class="axbox" x="64" y="28" width="816" height="40" rx="9"/>
+    <text class="axt3" x="76" y="46">Find two gluten-free options near Newstead</text>
+    <text class="axs3" x="76" y="61">Sage searches the web and reads the venues' own pages — no listing API needed; the options appear on the caller's screen as cards.</text>
+    <text class="axch" x="868" y="50" text-anchor="end" fill="#6fa9f2">WEB</text>
+  </g>
+  <g>
+    <circle cx="40" cy="100" r="12" fill="#6fa9f2"/><text class="axn" x="40" y="104" text-anchor="middle">2</text>
+    <rect class="axbox" x="64" y="80" width="816" height="40" rx="9"/>
+    <text class="axt3" x="76" y="98">Check Friday 6:45 for four on the venue's booking page</text>
+    <text class="axs3" x="76" y="113">The venue uses a third-party booking widget (SevenRooms). The team fills the form like a person would and reads the available times back.</text>
+    <text class="axch" x="868" y="102" text-anchor="end" fill="#6fa9f2">WEB FORM</text>
+  </g>
+  <g>
+    <circle cx="40" cy="152" r="12" fill="#f472b6"/><text class="axn" x="40" y="156" text-anchor="middle">3</text>
+    <rect class="axbox" x="64" y="132" width="816" height="52" rx="9"/>
+    <text class="axt3" x="76" y="150">Confirm the table by phone — the number is read off the page</text>
+    <text class="axs3" x="76" y="165">Aria says she has handed it to one of her team and rings the venue in her own voice while he holds. A human, a phone menu or another AI may answer —</text>
+    <text class="axs3" x="76" y="178">here it is Sunny, an AI receptionist. A far-end question ("dress code?") is relayed to Jordan live; the outcome is delivered the moment it lands.</text>
+    <text class="axch" x="868" y="154" text-anchor="end" fill="#f472b6">VOICE · AI ↔ AI</text>
+  </g>
+  <g>
+    <circle cx="40" cy="214" r="12" fill="#b89bff"/><text class="axn" x="40" y="218" text-anchor="middle">4</text>
+    <rect class="axbox" x="64" y="194" width="816" height="40" rx="9"/>
+    <text class="axt3" x="76" y="212">If the venue only had a webchat, ask it there instead</text>
+    <text class="axs3" x="76" y="227">The same team can open a chat widget and talk to the site's bot (ask_chatbot) — the channel comes from what the counterpart offers, not a connector.</text>
+    <text class="axch" x="868" y="216" text-anchor="end" fill="#b89bff">CHAT BOT</text>
+  </g>
+  <g>
+    <circle cx="40" cy="266" r="12" fill="#f59e0b"/><text class="axn" x="40" y="270" text-anchor="middle">5</text>
+    <rect class="axbox" x="64" y="246" width="816" height="40" rx="9"/>
+    <text class="axt3" x="76" y="264">Put it in the calendar — an integration exists, so use it</text>
+    <text class="axs3" x="76" y="279">Google Calendar is reachable through the Zapier MCP gateway: inspect the action, fill its fields, create the event. Integrations are welcome when they exist.</text>
+    <text class="axch" x="868" y="268" text-anchor="end" fill="#f59e0b">MCP TOOL</text>
+  </g>
+  <g>
+    <circle cx="40" cy="318" r="12" fill="#34d399"/><text class="axn" x="40" y="322" text-anchor="middle">6</text>
+    <rect class="axbox" x="64" y="298" width="816" height="40" rx="9"/>
+    <text class="axt3" x="76" y="316">Text the group the meeting point, drop a pin for Jordan, and take the walk-time job as a background task</text>
+    <text class="axs3" x="76" y="331">One SMS per person with the bar's address and map link; the pin shows on Jordan's Personal Voice Browser; the walk time is done after the call → WhatsApp.</text>
+    <text class="axch" x="868" y="320" text-anchor="end" fill="#34d399">TEXT · SCREEN · TASK</text>
+  </g>
+  <g>
+    <circle cx="40" cy="370" r="12" fill="#22d3ee"/><text class="axn" x="40" y="374" text-anchor="middle">7</text>
+    <rect class="axbox" x="64" y="350" width="816" height="40" rx="9"/>
+    <text class="axt3" x="76" y="368">Remember what worked</text>
+    <text class="axs3" x="76" y="383">Afterwards the Memorist stores the venue, booking pattern, group and contact used — scored and versioned — so "our usual, same as last time" is instant.</text>
+    <text class="axch" x="868" y="372" text-anchor="end" fill="#22d3ee">MEMORY</text>
+  </g>
+</svg>
+<p style="margin-top:10px">The point is not any single step: it is that the assistant <b>chose</b> the web form, the phone line, the chat widget, the MCP action and the text message at runtime, based on what each counterpart actually exposed — and that one of those counterparts was itself an AI.</p>
+</div>
+
+<h3>Architecture</h3>
+<div class="ax-card">
+<svg class="ax-diagram" viewBox="0 0 900 430" role="img" aria-label="Architecture: phone, browser or Huey callers reach Twilio and jambonz, which bridge to the harness; the harness runs Aria, the agent team and the browser, and talks to the screen, knowledge, messaging, outbound calls and Huey">
+  <defs>
+    <marker id="ax-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa6bf"/></marker>
+    <style>
+      .axb{fill:#141a2b;stroke:#243049;stroke-width:1.2;rx:10}
+      .axh{fill:#1a2340;stroke:#6fa9f2;stroke-width:1.4}
+      .axt{font:600 13px 'Segoe UI',system-ui,sans-serif;fill:#eef2fb}
+      .axs{font:11.5px 'Segoe UI',system-ui,sans-serif;fill:#9aa6bf}
+      .axl{stroke:#9aa6bf;stroke-width:1.4;fill:none;marker-end:url(#ax-arrow)}
+      .axl2{stroke:#9aa6bf;stroke-width:1.4;fill:none;marker-end:url(#ax-arrow);marker-start:url(#ax-arrow)}
+      .axlab{font:11px 'Segoe UI',system-ui,sans-serif;fill:#9aa6bf}
+    </style>
+  </defs>
+  <!-- callers -->
+  <rect class="axb" x="20" y="26" width="130" height="44" rx="10"/>
+  <text class="axt" x="85" y="45" text-anchor="middle">Phone caller</text>
+  <text class="axs" x="85" y="61" text-anchor="middle">PSTN number</text>
+  <rect class="axb" x="20" y="78" width="130" height="44" rx="10"/>
+  <text class="axt" x="85" y="97" text-anchor="middle">Browser caller</text>
+  <text class="axs" x="85" y="113" text-anchor="middle">WebRTC — the orb, live today</text>
+  <rect class="axb" x="20" y="130" width="130" height="44" rx="10"/>
+  <text class="axt" x="85" y="149" text-anchor="middle">Huey synthetic caller</text>
+  <text class="axs" x="85" y="165" text-anchor="middle">dials the number · scores</text>
+  <rect class="axb" x="190" y="26" width="120" height="44" rx="10"/>
+  <text class="axt" x="250" y="45" text-anchor="middle">Twilio</text>
+  <text class="axs" x="250" y="61" text-anchor="middle">number · SIP trunk</text>
+  <rect class="axb" x="350" y="40" width="140" height="80" rx="10"/>
+  <text class="axt" x="420" y="64" text-anchor="middle">jambonz</text>
+  <text class="axs" x="420" y="81" text-anchor="middle">SIP + WebRTC + media</text>
+  <text class="axs" x="420" y="94" text-anchor="middle">S2S bridge · outbound calls</text>
+  <text class="axs" x="420" y="107" text-anchor="middle">ambience "dub" tracks</text>
+  <line class="axl2" x1="150" y1="48" x2="190" y2="48"/>
+  <line class="axl2" x1="310" y1="48" x2="350" y2="60"/>
+  <line class="axl2" x1="150" y1="100" x2="350" y2="90"/>
+  <line class="axl2" x1="150" y1="152" x2="190" y2="60"/>
+  <!-- harness -->
+  <rect class="axh" x="530" y="20" width="350" height="250" rx="14"/>
+  <text class="axt" x="705" y="44" text-anchor="middle">Custom harness (Node) — the conductor</text>
+  <line class="axl2" x1="490" y1="80" x2="530" y2="80"/>
+  <text class="axlab" x="510" y="70" text-anchor="middle">wss</text>
+  <rect class="axb" x="548" y="60" width="150" height="58" rx="10"/>
+  <text class="axt" x="623" y="83" text-anchor="middle">Aria · host voice</text>
+  <text class="axs" x="623" y="100" text-anchor="middle">OpenAI Realtime (speech-to-speech)</text>
+  <rect class="axb" x="716" y="60" width="148" height="58" rx="10"/>
+  <text class="axt" x="790" y="83" text-anchor="middle">Agent team</text>
+  <text class="axs" x="790" y="100" text-anchor="middle">Lumi · Remy · Sage · Nova</text>
+  <line class="axl2" x1="698" y1="89" x2="716" y2="89"/>
+  <rect class="axb" x="548" y="138" width="316" height="52" rx="10"/>
+  <text class="axt" x="706" y="159" text-anchor="middle">Headless browser (Playwright) · tabs · pins · screenshots</text>
+  <text class="axs" x="706" y="177" text-anchor="middle">drives real sites · every page captured for screen + recap</text>
+  <rect class="axb" x="548" y="204" width="150" height="50" rx="10"/>
+  <text class="axt" x="623" y="225" text-anchor="middle">Tasks engine</text>
+  <text class="axs" x="623" y="242" text-anchor="middle">long-running jobs, threads</text>
+  <rect class="axb" x="716" y="204" width="148" height="50" rx="10"/>
+  <text class="axt" x="790" y="225" text-anchor="middle">Memorist 🧠</text>
+  <text class="axs" x="790" y="242" text-anchor="middle">learns after each session</text>
+  <!-- bottom row: what the harness reaches -->
+  <rect class="axb" x="20" y="320" width="170" height="80" rx="10"/>
+  <text class="axt" x="105" y="344" text-anchor="middle">Personal Voice Browser</text>
+  <text class="axs" x="105" y="362" text-anchor="middle">web console · live screen</text>
+  <text class="axs" x="105" y="376" text-anchor="middle">take control · tasks · harness</text>
+  <text class="axs" x="105" y="390" text-anchor="middle">(web page, WebSocket frames)</text>
+  <rect class="axb" x="215" y="320" width="160" height="80" rx="10"/>
+  <text class="axt" x="295" y="344" text-anchor="middle">Knowledge (Qdrant)</text>
+  <text class="axs" x="295" y="362" text-anchor="middle">SOPs · FAQs · Memory</text>
+  <text class="axs" x="295" y="376" text-anchor="middle">markdown files + vectors</text>
+  <text class="axs" x="295" y="390" text-anchor="middle">human-editable in the console</text>
+  <rect class="axb" x="400" y="320" width="160" height="80" rx="10"/>
+  <text class="axt" x="480" y="344" text-anchor="middle">Messaging</text>
+  <text class="axs" x="480" y="362" text-anchor="middle">WhatsApp + SMS (Twilio)</text>
+  <text class="axs" x="480" y="376" text-anchor="middle">Zapier MCP: calendar, SMS</text>
+  <text class="axs" x="480" y="390" text-anchor="middle">task threads ⇄ your phone</text>
+  <rect class="axb" x="585" y="320" width="140" height="80" rx="10"/>
+  <text class="axt" x="655" y="344" text-anchor="middle">The world's channels</text>
+  <text class="axs" x="655" y="362" text-anchor="middle">any web page or form</text>
+  <text class="axs" x="655" y="376" text-anchor="middle">phone lines: human, IVR, AI</text>
+  <text class="axs" x="655" y="390" text-anchor="middle">chat widgets · text</text>
+  <rect class="axb" x="750" y="320" width="130" height="80" rx="10"/>
+  <text class="axt" x="815" y="344" text-anchor="middle">Sunny (AI)</text>
+  <text class="axs" x="815" y="362" text-anchor="middle">Huey's voice agent</text>
+  <text class="axs" x="815" y="376" text-anchor="middle">answers Aria's calls</text>
+  <text class="axs" x="815" y="390" text-anchor="middle">AI ↔ AI over the PSTN</text>
+  <line class="axl2" x1="105" y1="320" x2="560" y2="270"/>
+  <line class="axl2" x1="295" y1="320" x2="620" y2="270"/>
+  <line class="axl2" x1="480" y1="320" x2="680" y2="270"/>
+  <line class="axl2" x1="655" y1="320" x2="740" y2="270"/>
+  <line class="axl2" x1="815" y1="320" x2="815" y2="270"/>
+</svg>
+<ul style="margin-top:10px">
+  <li><b>Two ways in, one brain</b> — a real PSTN number on Twilio feeds a SIP trunk into <b>jambonz</b>; the console's orb places a <b>WebRTC call</b> straight into jambonz with the official client. Both land on the same harness session, so the voice and the screen are one experience either way. Huey dials the phone number to automate testing.</li>
+  <li><b>The harness</b> is a Node service: the <b>conductor</b> runs Aria on OpenAI's speech-to-speech model so the voice is fast and natural, and hands anything that needs doing to the <b>agent team</b> — a deep-reasoning model with browser, phone, chat, text and MCP tools, and specialists (Lumi for local and weather, Remy for shopping and orders, Sage for research, Nova as the web generalist). The caller only ever hears Aria; the specialists work behind her.</li>
+  <li><b>The screen</b> — the Personal Voice Browser console shows the live browser frames, the tabs, the pins and what each agent is doing. You can take control of the page yourself and hand it back.</li>
+  <li><b>Knowledge</b> — SOPs (how the team behaves), FAQs (what it knows) and Memory (what it has learned) are markdown files indexed in Qdrant and editable in the console.</li>
+  <li><b>Channels out</b> — any web page, phone line (jambonz places the call in Aria's voice), chat widget or text; MCP/Zapier when an integration exists; a Tasks channel to WhatsApp and SMS through Twilio. Everything is captured into a shareable recap like this one.</li>
+</ul>
+</div>
+
+<h3>What the harness does, and why it matters</h3>
+<div class="ax-card ax-tbl">
+<table>
+<tr><th style="width:24%">Feature</th><th>Why it matters</th><th style="width:34%">How it gets used</th></tr>
+<tr><td><b>Runtime channel discovery</b></td><td>The world's services will expose AI agents on phones, chats and forms faster than anyone can integrate them. The team reasons about the interactions a job needs and reaches each counterpart on the channel it actually has — human, phone menu or AI on the other end.</td><td>A venue with only a booking page and a phone line gets booked and confirmed; an AI receptionist (Sunny) is simply talked to.</td></tr>
+<tr><td><b>One voice, a whole team</b></td><td>The caller talks to one person. Specialists swap in behind the voice with no hand-off, so it feels like a capable mate rather than a phone menu.</td><td>"Find me a bar near Rogue Bistro and drop a pin on it" — Aria answers; Lumi does the work.</td></tr>
+<tr><td><b>Phone or browser call</b></td><td>Anyone can ring a number; a link is even easier. The WebRTC orb in the console is the same assistant with the screen in the same window — no number needed.</td><td>Press the orb at the console; or ring the PSTN number. Synthetic callers use the phone path.</td></tr>
+<tr><td><b>Live screen (Personal Voice Browser)</b></td><td>Voice is a poor way to describe a map or a list of options. The screen mirrors every page, list and pin the team puts up, and Aria says so: "I've pulled that up on your Personal Voice Browser".</td><td>Pins on a map, side-by-side venue comparisons, menus, booking pages; take control to sign in or pick something yourself.</td></tr>
+<tr><td><b>Calls on your behalf</b></td><td>Real errands need a phone call. Aria rings them in her own voice while you stay on the line, relays their question back to you live, navigates a phone menu if there is one, and delivers the outcome.</td><td>"Ring Sunny and ask if they can make Friday." Tested machine-to-machine against Huey's own voice agent.</td></tr>
+<tr><td><b>Chatbots and MCP tools</b></td><td>When the counterpart offers a chat widget, the team asks it; when a real integration exists (calendar, SMS gateway), the team uses it — integrations are welcome, just not required.</td><td>ask_chatbot for webchat bots and xApps; Zapier MCP for Google Calendar and Twilio SMS.</td></tr>
+<tr><td><b>Texts &amp; WhatsApp</b></td><td>Things you need on your phone — an address, a map link, a forecast — are sent as a text, and the Tasks channel talks to you on WhatsApp both ways.</td><td>"Text me that location" → an SMS with the Google Maps link; "#7 who's going?" from WhatsApp continues the thread.</td></tr>
+<tr><td><b>Long-running tasks</b></td><td>Not everything should hold the line. A job can be started during the call and keeps running after you hang up, reporting into a thread that reaches your phone — so the call stays short and the work still gets done.</td><td>"While I'm off the phone, work out the walk time and WhatsApp me" — the task exists before Aria finishes the sentence.</td></tr>
+<tr><td><b>Long-term memory</b></td><td>A good assistant gets faster every time. After each session the Memorist distils durable facts (contacts, venues, links, preferences) with a self-learning score, messages you the big ones, and arms the next session with them.</td><td>"Our usual Friday dinner, same as last time" is answered from memory, not research. Every memory carries version, timestamps, provenance and usage.</td></tr>
+<tr><td><b>SOPs and FAQs</b></td><td>Behaviour is governed by plain-English procedures (hold etiquette, read-back before paying, how to share a location) and facts the team can cite — both editable by a human without touching code.</td><td>Triggered by phrases or always in force; retrieved from Qdrant per turn; shown in the console with the reasons they were picked.</td></tr>
+<tr><td><b>Atmosphere &amp; pacing</b></td><td>Silence on a phone call reads as a dropped line. Room tone, typing while the team works and hold music on outbound calls keep the call alive, and the host is coached on when to speak and when not to.</td><td>Automatic — mixed by jambonz; tuned from real takes.</td></tr>
+<tr><td><b>Observability &amp; recap</b></td><td>Every turn, tool call, model cost and sentiment point is captured, and a shareable recap (audio of every leg, screens, calls, texts, tasks) is built automatically after each call.</td><td>This page. The console's Harness drawer shows the same in real time.</td></tr>
+<tr><td><b>Safety switches</b></td><td>Demos must never ring or text the wrong person. A test-dial switch redirects every outbound call and text to a chosen target, emergency numbers are refused, and anything that costs money needs a read-back and a yes.</td><td>Showcase runs dial Sunny (Huey's voice agent) and text the owner only.</td></tr>
+</table>
+</div>
+
+<h3>Long-running tasks and long-term memory, in a little more depth</h3>
+<div class="ax-grid">
+<div class="ax-card">
+<p><b>Long-running tasks.</b> Aria can start a background task from the call in one breath ("underway — I'll WhatsApp you"), or you can start one by messaging the Tasks channel. Each task is a thread with its own browser tab, worked off the call by the same team with a bigger research budget; replies, screenshots and sketches land in the thread and are forwarded to WhatsApp. Replying on WhatsApp ("#8 make it 6pm") continues that thread. Tasks survive the call ending and the server restarting.</p>
+</div>
+<div class="ax-card">
+<p><b>Long-term memory.</b> The Memorist watches each session and, once it goes quiet, extracts up to three durable learnings, scores them on novelty, utility and confidence, merges refinements into existing memories, and messages you the notable ones. Every session starts armed with the ranked digest, and the deep lane retrieves matching memories per turn. Memories are plain markdown with a metadata block — version, created and edited timestamps, who changed it, how often it was used — and can be edited or deleted in the console. SOPs and FAQs sit beside them in the same Knowledge drawer.</p>
+</div>
+</div>
+
+<h3>How it was tested — synthetic callers over the telephone</h3>
+<div class="ax-card">
+<p>The browser call works today, but for testing we wanted the hardest path and something repeatable: so <b>Huey</b> (an AI-agent testing platform) plays the caller <b>over the public telephone network</b>. A persona — Jordan Blake, a Brisbane operations manager organising a team dinner — dials the real PSTN number through Huey's jambonz runner, follows a scripted brief with natural improvisation, holds when told to, and hangs up only on a scripted goodbye. Each test segment carries <b>compliance policies</b> (for example "pin shown on the Personal Voice Browser", "delegation announced", "hold etiquette", "no premature hang-up") that a monitor scores from the transcript, and every take produces a recap like this one automatically. That turns a demo into a regression suite: a take is re-run after every fix.</p>
+<p>Outbound calls Aria places during a test are redirected to <b>Sunny</b>, Huey's own voice agent, so the call-inside-a-call is machine to machine over the PSTN and nobody real is rung. A launcher checks the server, the tunnel, the redirect and the WhatsApp window before dispatching, then prints the per-policy result, the transcript and the recap link.</p>
+</div>
+
+<h3>Sharing the browser — the same session by phone or in your browser</h3>
+<div class="ax-card">
+<p>The harness owns a headless Chromium browser per session. Every frame of the active tab is streamed over a WebSocket to the Personal Voice Browser web page, along with the tab strip, the activity overlay ("Searching…", "Dropping a pin…"), lists of options as cards, and pins as a map badge. The caller can click, scroll and type on that frame — the harness forwards the input to the real page and hands control back to the team when they say so. A screenshot of each page visited is kept for the recap.</p>
+<p>Because the screen is a web page and jambonz speaks WebRTC, the <b>browser call already exists</b>: open the console, press the orb, and the voice and the screen are in one window with no phone number involved — the official jambonz web client dials the same application the phone number routes to. The phone path exists so that anyone, on any phone, can ring it, and so that Huey's synthetic callers can exercise the whole telephony chain. In practice a product would offer both: a link for people at a screen, a number for everyone else.</p>
+</div>
+
+<h3>How this differs from the personal AI agents — Meta Muse and Instinct</h3>
+<div class="ax-card">
+<p>In the week this page was written (13 Nov 2026) both of the headline personal agents gained the ability to phone businesses: <b>Meta Muse</b> (10M+ users; calling went live on 12 Nov for paid US subscribers, US businesses only, after an internal test in September that turned out to be routed to human contractors) and <b>Instinct</b> (Concierge, launched 16 Sep; invite-only, US calls only, the agent reports back and will not commit without approval). Both browse the web on your behalf from a cloud machine; Muse also books flights through Duffel and hotels through Agoda in Singapore and Japan. Neither is available in Australia. They are the right thing to compare against, because they are what people will have in mind when they see this demo.</p>
+<p class="ax-callout"><b>The short version:</b> Muse and Instinct are apps that have added a phone. The Personal Voice Browser is a phone call that has a team, a screen and the web behind it — built on open telephony, governed by editable procedures, testable with synthetic callers, and deployable inside someone else's perimeter. The capabilities below are the ones worth pointing at.</p>
+<div class="ax-tbl">
+<table>
+<tr><th style="width:21%">Capability</th><th style="width:32%">Personal Voice Browser</th><th>Meta Muse · Instinct (as publicly documented)</th></tr>
+<tr><td><b>Where the conversation lives</b></td><td>On a live call — PSTN number or WebRTC orb. The voice is the product; everything else happens behind it while you stay on the line.</td><td>Text first (app, WhatsApp, SMS). A phone call is a tool the agent uses asynchronously; you get a transcript afterwards.</td></tr>
+<tr><td><b>Calls on your behalf</b></td><td>Placed in Aria's own voice <i>from inside your call</i>, with hold music to you and a live relay of the far end's questions ("dress code?"). Handles a human, a phone menu, or another AI. Any number, Australia today.</td><td>Outbound calls to US businesses only; paid tier (Muse) or invite (Instinct). No live relay — the user is not on the line. Muse did not identify itself as an AI in the published example.</td></tr>
+<tr><td><b>AI talking to AI</b></td><td>Demonstrated machine-to-machine over the public telephone network: Aria rings a number read off a web page and negotiates with Sunny, an AI receptionist. Also asks website chatbots (ask_chatbot) and drives xApps.</td><td>Not documented. Both are built to browse sites and talk to humans; neither describes conversing with another service's AI front door.</td></tr>
+<tr><td><b>Runtime channel discovery</b></td><td>The team reasons per interaction: integration if one exists (Zapier MCP), otherwise the web form, phone line, chat widget or text the counterpart actually exposes.</td><td>Browser automation plus a growing list of partner integrations (Duffel, Agoda, Expedia pending). Bot-blocked on some sites (Hilton); phone is the fallback only in the US.</td></tr>
+<tr><td><b>Shared live screen</b></td><td>Every frame, tab, pin and option list streams to your Personal Voice Browser in sync with the voice; you can take control mid-call and hand it back. Aria tells you when something is on screen.</td><td>Muse exposes its Linux desktop and browser so you can watch or intervene — but it is not coupled to a live voice conversation. Instinct has no screen; it texts.</td></tr>
+<tr><td><b>Governance you can read</b></td><td>Behaviour is plain-English SOPs and FAQs in Qdrant, editable in the console, with the reasons each was retrieved shown per turn. Read-back and a yes before anything costs money; password fields refused; emergency numbers refused; test-dial switch for demos.</td><td>Approval prompts for purchases and emails (Muse) and before committing a booking (Instinct); policies live inside the vendor. Instinct's terms say agreements made on your behalf can be binding.</td></tr>
+<tr><td><b>Testability</b></td><td>Huey synthetic callers dial the real number over the PSTN, follow a persona brief, and score compliance policies on every take — a regression suite, not a demo. Outbound legs are redirected to Sunny so nobody real is rung.</td><td>No published test harness. Quality is whatever the vendor ships; early hands-on reviews report inconsistent booking completion and, for Instinct, an unapproved email send.</td></tr>
+<tr><td><b>Observability &amp; recap</b></td><td>Every turn, tool call, model cost and sentiment point captured; a shareable recap with audio of each leg, screens, calls, texts and tasks is built after every call.</td><td>Muse offers an audit trail of actions and transcripts of calls. Nothing comparable is described for Instinct.</td></tr>
+<tr><td><b>Memory</b></td><td>Memorist distils durable learnings after each session: plain markdown with version, provenance and usage counts, inspectable and editable, messaged to you when notable.</td><td>Both remember preferences and goals; neither exposes memory as something you can read, version or edit line by line.</td></tr>
+<tr><td><b>Long-running work &amp; messaging</b></td><td>Tasks started mid-call continue after hang-up in their own browser tab, reporting to a WhatsApp/SMS thread you can reply into.</td><td>Broadly at parity — both run background tasks and reach you on WhatsApp/text. This is table stakes, not a differentiator.</td></tr>
+<tr><td><b>Who owns the stack</b></td><td>jambonz + Twilio + swappable speech-to-speech and reasoning models (OpenAI Realtime, Gemini) in a Node harness you can run anywhere. Multi-tenant is configuration, not redesign.</td><td>Closed consumer products on the vendor's cloud. Your calls, pages, credentials and transcripts pass through Meta or Instinct — the human-contractor episode is the cautionary example.</td></tr>
+</table>
+</div>
+</div>
+<div class="ax-grid">
+<div class="ax-card">
+<p><b>Points for Dave Horton / jambonz.</b></p>
+<ul>
+  <li><b>The phone is becoming the universal API for agents.</b> Muse and Instinct both reached for outbound calling within weeks of each other because the web alone cannot finish an errand. Every personal agent will need a calling substrate; this harness shows jambonz is already that substrate — SIP, WebRTC, S2S bridge, outbound-inside-inbound, dub tracks — with no product work on the agent side.</li>
+  <li><b>AI ↔ AI over the PSTN is real now.</b> Aria calling Sunny is a jambonz app calling a jambonz app. The interesting traffic on carrier networks in 2027 is agents ringing the AI front doors of businesses; the custom-harness protocol is a natural place for a well-known descriptor so a calling agent can discover that a number is answered by an AI and negotiate accordingly.</li>
+  <li><b>One session, two transports.</b> The orb uses the official jambonz web client to dial the same application the number routes to, so voice and screen are one WebSocket-fed experience. That is a story Meta cannot tell: their screen is a VM, not the call.</li>
+  <li><b>Synthetic callers over the real network</b> turn telephony demos into regression suites. Huey dialling the number through its own jambonz runner is a pattern any jambonz customer could adopt.</li>
+</ul>
+</div>
+<div class="ax-card">
+<p><b>Points for the VERSA SLT.</b></p>
+<ul>
+  <li><b>Clients' contact centres are about to receive calls from these agents.</b> Muse is US-only today and "coming weeks" for Australia according to Meta's own account. A member's agent ringing a fund, a bank or an insurer is the inbound side of exactly what this harness does outbound — and it shows what a discoverable, well-behaved AI front door needs to look like (clear identity, structured answers, no dead air).</li>
+  <li><b>An enterprise cannot run its agent on Meta's VM.</b> The capabilities regulated clients will ask for — SOPs a compliance team can read and edit, read-back before money moves, audit of every turn, synthetic-caller regression, data staying in the client's perimeter — are built into this harness and absent or opaque in the consumer agents. That is the consulting proposition: the same end-to-end agency, governed.</li>
+  <li><b>Works in Australia now,</b> on a real Brisbane number, with Australian businesses on the other end. The consumer agents' calling features are US-only and gated behind paid or invite tiers.</li>
+  <li><b>Voice plus screen is a better member experience than text plus transcript.</b> A map, a comparison or a form is shown while the member talks; the member can take over the page to sign in or choose, then hand back. Pair that with a healthcheck-style evaluation and it is a credible reference architecture, not a prototype pitch.</li>
+</ul>
+</div>
+</div>
+<div class="ax-card">
+<p><b>Where the consumer agents are ahead, to be fair.</b> Scale (Muse claims 10M+ users), payments and purchasing, email and calendar inside the product, persistent cloud desktops per user, partner booking rails (Duffel, Agoda, Expedia), and a consumer brand. The Personal Voice Browser is a one-owner prototype that proves the pattern; it is not yet multi-tenant, has no payment hand-off, and its specialists are role descriptions rather than trained verticals. The comparison is about <b>architecture and governance</b>, not polish.</p>
+</div>
+
+<h3>Where it could go next</h3>
+<div class="ax-card">
+<ul>
+  <li><b>Channel discovery at scale</b> — a directory or well-known descriptor so an assistant can find a service's AI front door (phone, chat, agent endpoint) without a search, while still falling back to conversation when none exists.</li>
+  <li><b>Caller identity</b> — knowing who is ringing (number, profile) so "text me", contacts and memory are per person rather than per owner.</li>
+  <li><b>Richer screen widgets</b> — forms the caller fills on screen, map pin-drops they place themselves (the xApp path already exists), payment hand-off.</li>
+  <li><b>More specialists and tools</b> — travel, calendar-first planning, email triage — each a short role description plus the sites they own.</li>
+  <li><b>Memory governance</b> — approval before a memory is used, expiry, per-caller scopes.</li>
+  <li><b>Scale</b> — one harness serves one owner today; sessions, tasks and memory are already keyed, so multi-tenant is a configuration step rather than a redesign.</li>
+</ul>
+</div>
+</main>
+
+<div class="foot">Personal Voice Browser — a jambonz custom harness. This summary is embedded in every shareable call recap; a PDF copy is at /architecture.pdf.</div>
+</div>
+</body>
+</html>
