@@ -92,7 +92,6 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
         <input id="text" placeholder="e.g. open uber eats and find me a pizza" autocomplete="off">
         <button class="btn primary" type="submit">Send</button>
       </form>
-      <div id="bots-note" class="bots-note" hidden></div>
       <div id="transcript" class="transcript"></div>
     </div>
   </section>
@@ -237,8 +236,13 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
         <div class="task-empty hint">Pick a task on the left — or just type below to start a new one.<br><br>A task is an ongoing text conversation: Aria browses, phones people and uses her tools in the background, and every update lands in the thread whether or not you're watching.</div>
       </div>
       <form id="task-form" class="task-form">
-        <input id="task-input" placeholder="Ask Aria to get something done…" autocomplete="off">
-        <button class="btn primary" type="submit">Send</button>
+        <div id="task-attach-list" class="task-attach-list" hidden></div>
+        <div class="task-form-row">
+          <button type="button" id="task-attach" class="btn ghost task-attach-btn" title="Attach images or documents — or paste / drop them here">📎</button>
+          <input id="task-input" placeholder="Ask Aria to get something done… (paste or drop files)" autocomplete="off">
+          <input type="file" id="task-file" multiple accept="image/png,image/jpeg,image/gif,image/webp,.pdf,.txt,.md,.csv,.json,.docx" hidden>
+          <button class="btn primary" type="submit" id="task-send">Send</button>
+        </div>
       </form>
     </div>
   </div>

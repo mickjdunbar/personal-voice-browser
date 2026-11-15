@@ -363,8 +363,6 @@ details summary{font-size:12px;color:var(--muted);cursor:pointer}
 .col-field{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--ink)}
 .col-field textarea{font:inherit;font-family:var(--mono);font-size:11.5px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 9px;resize:vertical}
 .bot-advanced>summary{cursor:pointer;font-size:11.5px;color:var(--muted);padding:2px 0}
-.bots-note{font-size:11.5px;color:var(--muted);margin:2px 0 6px}
-.bots-note b{color:var(--ag-scout)}
 /* Messages to/from an EXTERNAL SOURCE are colour-coded so they never read as the caller or the
    on-call agent: a phone call is pink (📞), an external chatbot is purple (🤖). Outbound (we asked)
    sits on the right with a dashed edge; inbound (their reply) on the left with a solid source edge. */
@@ -939,8 +937,26 @@ main.grid{grid-template-columns:minmax(0,1fr)}
 .task-typing i:nth-child(3){animation-delay:.36s}
 .task-typing span{margin-left:3px}
 @keyframes taskdots{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
-.task-form{display:flex;gap:8px}
-.task-form input{flex:1;min-width:0}
+.task-form{display:flex;flex-direction:column;gap:6px}
+.task-form-row{display:flex;gap:8px;align-items:center}
+.task-form input#task-input{flex:1;min-width:0}
+.task-form input[type=file]{display:none}
+.task-attach-btn{padding:6px 10px;font-size:15px;line-height:1}
+.task-attach-list{display:flex;flex-wrap:wrap;gap:6px}
+.task-attach-list[hidden]{display:none}
+.task-chip{display:inline-flex;align-items:center;gap:6px;max-width:260px;padding:3px 6px 3px 3px;border:1px solid var(--line);border-radius:10px;background:var(--panel,rgba(255,255,255,.04));font-size:12px}
+.task-chip img{width:28px;height:28px;object-fit:cover;border-radius:6px;background:#fff}
+.task-chip i{font-style:normal;font-size:16px;padding:0 3px}
+.task-chip b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.task-chip small{color:var(--mut,#9a978f);white-space:nowrap}
+.task-chip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:14px;padding:0 4px;opacity:.7}
+.task-chip button:hover{opacity:1}
+#tasks-drawer.dropping{outline:2px dashed var(--accent);outline-offset:-6px}
+.tmsg-file{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:5px 9px;border:1px solid var(--line);border-radius:10px;color:inherit;text-decoration:none;font-size:12.5px;max-width:100%}
+.tmsg-file:hover{border-color:var(--accent)}
+.tmsg-file b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmsg-file small{color:var(--mut,#9a978f);white-space:nowrap}
+.tmsg.owner .tmsg-img{max-height:240px}
 @media (max-width:860px){
   .tasks-drawer .drawer-body.tasks-body{grid-template-columns:1fr;grid-template-rows:minmax(84px,26vh) 1fr}
   .task-list{flex-direction:column}
@@ -969,3 +985,5 @@ main.grid{grid-template-columns:minmax(0,1fr)}
 .tmsg-media{display:block;margin-top:6px}
 .tmsg-img{display:block;max-width:100%;max-height:320px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:zoom-in}
 .tmsg-text:empty{display:none}
+.autolink{color:var(--accent);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.autolink:hover{filter:brightness(1.15)}

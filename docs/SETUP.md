@@ -96,6 +96,12 @@ view, the transcript, who on the team has the floor, the pins, and three edge ta
 (tasks — the channel that runs beside the call), **Live** (the real-time text channel, same thread
 as the voice) and **Harness** (SOPs, knowledge, memory, talk settings). You can type to it straight away.
 
+The Async composer takes files as well as words: paste a screenshot, drop files onto the drawer, or
+use the 📎 button. Images (png/jpg/gif/webp) go to the model as pictures; documents (pdf, docx, txt,
+md, csv, json) are read as text (pdf/docx need `python` with `pymupdf` and `python-docx` on PATH,
+`pdftotext` is the pdf fallback). Up to 8 files, 15 MB each, stored under `.tasks-media/` beside the
+thread. URLs in replies are clickable.
+
 Now **ring the number**. Aria answers. Try, in one call:
 
 * "Find me two places for dinner Friday with proper gluten-free options and compare them."

@@ -10,6 +10,7 @@ import { config, harnessUrl } from '../config.js';
 import { S2S_PERSONA } from '../agent/persona.js';
 import { HOST } from '../agent/team.js';
 import { currentTimeLine } from '../clock.js';
+import { isChitChat } from '../llm/lanes.js';
 
 export const BROWSE_TOOL_NAME = 'browse_for_caller';
 export const TASK_TOOL_NAME = 'start_background_task'; // 13 Nov: long-running jobs, started instantly by the host
@@ -35,6 +36,7 @@ export function browseToolDeclaration() {
       'Hand the caller to your capable colleague (same voice, same name) for ANY request that needs an ACTION, not just chatting. That includes: anything on the web (open a site, search, find, read, compare, check prices or hours, order, book, fill a form, click, go back), AND phoning a person to ask them something (e.g. "call my wife and ask what she wants for dinner"), AND asking another assistant or chatbot. ' +
       'Your colleague also has the caller\'s saved CONTACT BOOK and knowledge notes: "call my dad" / "ring Sam" needs NO number — pass the request as said and the number is looked up by name automatically. Never ask the caller for a number you were not given, and never say you cannot access their contacts, notes or FAQs — you can, through this tool. ' +
       'Call this the moment such a request arrives, with the request in full. Do NOT try to do it yourself and do NOT say you cannot make calls or do things — your colleague can. ' +
+      'SETTINGS of this Personal Voice Browser are ALSO this tool: asking WHICH chatbots or MCP servers / tools are set up (the colleague lists them — read the names back), adding or removing a chatbot / REST endpoint (e.g. a Cognigy endpoint URL), adding or removing an MCP server, or switching the test-dial redirect — pass the request with every URL, name and key exactly as given, and relay the result (your colleague will refuse, politely, if the caller is on a phone line rather than the web page). ' +
       'TEXTING something NOW ("text me that location", "send me the link", "text me the forecast") is THIS tool: the text is sent straight away and the result tells you it was sent — then tell the caller it\'s sent. Only jobs for AFTER the call ("while I\'m off the phone", "later", "WhatsApp me when you have it") go to start_background_task. ' +
       "As you call it, say ONE short, natural line that you're onto it (e.g. \"Let me take a look\" / \"One sec, I'll pull that up\") so the caller isn't left in silence while it's worked on — then wait for the result and read it back warmly and briefly.",
     parameters: {
@@ -95,10 +97,20 @@ export function s2sInstructions({ resume } = {}) {
 export function s2sVerb({ resume, transcript, callerContext, opening } = {}) {
   const instructions = s2sInstructions({ resume }) + '\n\n' + currentTimeLine();
   const ctxNote = callerContext ? `\n\nABOUT THE CALLER (personalize naturally — never read it back or say you have notes on them):\n${callerContext}` : '';
-  const openNote = opening ? `\n\nTHE CALLER'S FIRST MESSAGE (they typed this to start the call): "${opening}". Open by greeting them warmly and briefly and showing you're onto THIS, then IMMEDIATELY call browse_for_caller with it. Do not ask what they'd like to do — they've told you.` : '';
-  const openingGreeting = opening
-    ? `The caller opened by typing: "${opening}". Greet them like a mate — casual, playful, first-name basis (you're ${HOST.name}; use their name if you know it) — show you're onto it, and IMMEDIATELY call browse_for_caller with that request — do NOT ask what they want.`
-    : `Greet the caller like a mate you're happy to hear from — casual and playful ("Hey hey!", "G'day!"), say you're ${HOST.name}, and ask what they're up to in a relaxed way ("what are we getting up to today?", "what's the plan?"). NEVER stiff service lines like "How can I be of service" or "How may I assist you today".`;
+  // 15 Nov: a typed "hello" / "hi" / "how are you" is NOT a request — before this Aria "dived right
+  // in" and browsed for "hello". Only an opening with something to do triggers the tool.
+  const justHello = Boolean(opening) && isChitChat(opening);
+  // 15 Nov: `response.create.instructions` REPLACES the session instructions for that one response,
+  // so the opening greeting never saw S2S_PERSONA's "Speak Australian English" and gpt-realtime opened
+  // in Portuguese ("Oi, beleza? Bora lá…") to an English caller. Pin it on every greeting variant.
+  const LANG_PIN = 'LANGUAGE: English only — relaxed Australian English (the caller is English-speaking). ';
+  const openNote = !opening ? '' : justHello
+    ? `\n\nTHE CALLER'S FIRST MESSAGE (they typed this to start the call): "${opening}". That is just a hello, not a request: greet them back warmly in one short line and ask what's up. Do NOT call any tool until they ask for something.`
+    : `\n\nTHE CALLER'S FIRST MESSAGE (they typed this to start the call): "${opening}". Open by greeting them warmly and briefly and showing you're onto THIS, then IMMEDIATELY call browse_for_caller with it. Do not ask what they'd like to do — they've told you.`;
+  const openingGreeting = LANG_PIN + (opening ? (justHello
+    ? `The caller opened by typing: "${opening}" — just a hello. Say hi back like a mate — casual, one short line (you're ${HOST.name}; use their name if you know it) — and ask what they're after. Do NOT call any tool yet.`
+    : `The caller opened by typing: "${opening}". Greet them like a mate — casual, playful, first-name basis (you're ${HOST.name}; use their name if you know it) — show you're onto it, and IMMEDIATELY call browse_for_caller with that request — do NOT ask what they want.`)
+    : `Greet the caller like a mate you're happy to hear from — casual and playful ("Hey hey!", "G'day!"), say you're ${HOST.name}, and ask what they're up to in a relaxed way ("what are we getting up to today?", "what's the plan?"). NEVER stiff service lines like "How can I be of service" or "How may I assist you today".`);
   // The google path threads the transcript via setup below; the openai path needs it in the
   // instructions, or a reconnect resume starts with amnesia.
   const transcriptNote = Array.isArray(transcript) && transcript.length
@@ -123,7 +135,7 @@ export function s2sVerb({ resume, transcript, callerContext, opening } = {}) {
           modalities: ['text', 'audio'],
           voice: config.s2s.voice,
           output_audio_format: fmt,
-          instructions: resume ? 'Pick the conversation back up in one short warm sentence.' : openingGreeting
+          instructions: resume ? LANG_PIN + 'Pick the conversation back up in one short warm sentence.' : openingGreeting
         },
         session_update: {
           instructions: instructions + ctxNote + openNote + transcriptNote,

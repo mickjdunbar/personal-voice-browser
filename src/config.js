@@ -159,9 +159,11 @@ export const config = {
     // Mix levels applied to loops normalised to -1 dBFS peak (scripts/make-audio.mjs):
     // bed = soft room tone under speech · typing = clearly-there clatter while a specialist
     // works · hold = a present but gentle pad while an outbound call is made for the caller.
-    bedGain: process.env.AMBIENCE_BED_GAIN || '-30 dB',
-    typingGain: process.env.AMBIENCE_TYPING_GAIN || '-20 dB',
-    holdGain: process.env.AMBIENCE_HOLD_GAIN || '-16 dB',
+    // 15 Nov: all three dropped 6 dB (Mick: "too loud") and WebRTC legs get a further trim (conductor legGain).
+    bedGain: process.env.AMBIENCE_BED_GAIN || '-36 dB',
+    typingGain: process.env.AMBIENCE_TYPING_GAIN || '-26 dB',
+    holdGain: process.env.AMBIENCE_HOLD_GAIN || '-22 dB',
+    webrtcTrimDb: Number.isFinite(Number(process.env.AMBIENCE_WEBRTC_TRIM_DB)) ? Number(process.env.AMBIENCE_WEBRTC_TRIM_DB) : -8,
     bedFile: process.env.AMBIENCE_BED_FILE || 'ambience.wav',
     typingFile: process.env.AMBIENCE_TYPING_FILE || 'typing.wav',
     holdFile: process.env.AMBIENCE_HOLD_FILE || 'hold.wav'

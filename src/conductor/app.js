@@ -25,12 +25,15 @@ import { emitEvent } from '../events.js';
 import { configVerb, sayVerb, hangupVerb, s2sVerb, agentVerb, askS2sVerb, recognizer, BROWSE_TOOL_NAME, TASK_TOOL_NAME, ASK_FINISH_TOOL, ASK_OWNER_TOOL, ASK_REPORT_TOOL, RELAY_TOOL } from './verbs.js';
 import { runIvrMapCall, ivrMapLegEnded } from '../phone/ivrmap.js'; // 14 Nov: IVR mapper legs (mode 'ivrmap')
 import { getAsk, resolveAsk, pendingAsksFor } from '../phone/ask.js';
+import { createDetector, postureFor, inboundPostureFor, priorFor, rememberVerdict, renderMenuTree } from '../phone/whoAnswered.js'; // 14 Nov: human / agent / IVR / voicemail read on ask legs + inbound callers
+import { listIvrMaps, getIvrMap } from '../phone/ivrmap.js';
 import { costOfRealtimeUsage } from '../llm/pricing.js';
 import { completeText } from '../llm/client.js';
 import { getSession } from '../agent/sessions.js';
 import { textWriter } from '../agent/navigator.js';
 import { HOST, pickSpecialist } from '../agent/team.js';
 import { scoreSentiment, trendOf } from '../sentiment.js';
+import { isChitChat } from '../llm/lanes.js';
 import { refineMood } from '../mood.js';
 import { authorizeUpgrade, rejectUpgrade } from '../wsAuth.js';
 import { getObservability } from '../observability/store.js';
@@ -121,7 +124,7 @@ export async function injectCallerText(sessionId, text) {
   const ctl = [...calls.values()].find((c) => c.sessionId === sessionId);
   if (!ctl) return { ok: false, error: 'no live call' };
   if (ctl.swapping) return { ok: false, error: 'busy' };
-  ctl.transcript.push({ role: 'user', text: clean });
+  ctl.transcript.push({ role: 'user', text: clean, closed: true, at: Date.now() });
   const s = scoreSentiment(clean);
   ctl.callerTurns = (ctl.callerTurns || 0) + 1;
   ctl.sentiment = [...(ctl.sentiment || []), s.score].slice(-40);
@@ -279,7 +282,8 @@ async function onSession(session) {
     if (ctl.swapping || ctl.lane === 's2s' || evt.completion_reason === 'application_redirect') return;
     session.hangup().reply();
   });
-  emitEvent('call.start', ctl.sessionId, { callSid, from, to, direction, mode: ctl.mode });
+  if (direction === 'inbound' && mode !== 'ask' && mode !== 'ivrmap') ctl.who = createDetector({ kind: 'inbound', to: from, prior: priorFor(from) }); // 14 Nov: who is CALLING (person or an agent acting for one)
+  emitEvent('call.start', ctl.sessionId, { callSid, from, to, direction, mode: ctl.mode, ownerSession: ctl.ownerSession, startedAt: ctl.startedAt });
   getObservability().event(ctl.sessionId, 'call.start', { callSid, from, to, direction, mode: ctl.mode }).catch(() => {});
 
   if (ctl.mode === 'ask') { runAskCall(ctl, tag.askId); return; }
@@ -301,11 +305,11 @@ async function onSession(session) {
   // If this call was started by a typed message, that's the caller's opening request — greet AND act
   // on it, rather than asking what they want (they already told us).
   const opening = takePendingIntent(ctl.sessionId);
-  if (opening) ctl.transcript.push({ role: 'user', text: opening });
+  if (opening) ctl.transcript.push({ role: 'user', text: opening, closed: true, at: Date.now() });
   // jambonz re-dials our ws under the SAME callSid when the control socket drops mid-call. That's a
   // reconnect, not a new call: carry the transcript over and resume instead of greeting from scratch.
   const prior = recent.find((r) => r.call_sid === callSid && r.end_reason === 'socket closed' && Date.now() - (r.ended_at || 0) < 90000);
-  if (prior?.transcript?.length) ctl.transcript.push(...prior.transcript);
+  if (prior?.transcript?.length) ctl.transcript.push(...prior.transcript.map((t) => ({ ...t, closed: true })));
   emitEvent('lane.swap', ctl.sessionId, { callSid, lane: 's2s', why: prior ? 'reconnected' : 'call start', model: config.s2s.model, voice: config.s2s.voice });
   emitEvent('speaker', ctl.sessionId, { callSid, agent: { id: HOST.id, name: HOST.name, title: HOST.title, color: HOST.color, role: 'host' }, lane: 's2s' });
   session.addVerbs([configVerb(), s2sVerb({ callerContext: renderContext(ctl.sessionId), opening, ...(prior ? { resume: { reconnect: true }, transcript: ctl.transcript } : {}) })]).send();
@@ -317,8 +321,18 @@ async function onSession(session) {
 // survive the lane swaps and give the caller a quiet room tone plus typing while a
 // specialist works — no more dead air. Injected (not queued) so a dub that an older
 // feature server does not understand can never break the conversation.
+/** 15 Nov: the mix level for this leg. A WebRTC caller (browser → jambonz, `to` = app-…) hears the
+ *  dub at full level with no codec loss, so the same gain sounded far louder than on a phone line;
+ *  trim it by AMBIENCE_WEBRTC_TRIM_DB (default -8 dB) there. */
+function legGain(ctl, base) {
+  const n = parseFloat(String(base));
+  if (!Number.isFinite(n)) return base;
+  const trim = /^app-/i.test(String(ctl?.to || '')) ? config.ambience.webrtcTrimDb : 0;
+  return `${Math.round(n + trim)} dB`;
+}
 function dubCmd(ctl, data, why) {
   if (!config.ambience.enabled) return;
+  if (data.gain != null) data = { ...data, gain: legGain(ctl, data.gain) };
   try { ctl.session.injectCommand('dub', data); emitEvent('ambience', ctl.sessionId, { callSid: ctl.callSid, action: data.action, track: data.track, why }); }
   catch (err) { logger.warn(`call ${ctl.callSid}: dub ${data.action}/${data.track} failed: ${err.message}`); }
 }
@@ -367,6 +381,16 @@ function runAskCall(ctl, askId) {
   ctl.askId = askId;
   ctl.ivr = { goal: ask.question, name: ask.name, onBehalfOf: ask.onBehalfOf || config.agentName, kind: ask.kind, opener: buildAskIntro(ask), steps: 0, heard: [], said: [] };
   session.on('/ask-step', (evt) => onAskStep(ctl, evt));
+  // WHO ANSWERED (14 Nov): score the pickup from AMD + the first utterances; the verdict sets Aria's
+  // posture (human pace / full brief to an agent / keys for a menu / message for voicemail).
+  const prior = priorFor(ask.to, { maps: listIvrMaps() });
+  ctl.who = createDetector({ kind: ask.kind, to: ask.to, prior });
+  if (prior?.mapId) {
+    // A mapped menu: the gather loop can choose keys from the tree instead of listening its way down.
+    const tree = renderMenuTree(getIvrMap(prior.mapId));
+    if (tree) { ctl.ivr.mapHint = tree; logger.info(`call ${callSid}: known menu for this number (map ${prior.mapId}) — key paths available`); }
+  }
+  session.on('/amd', (evt) => { const type = evt?.type || evt?.event || ''; note(ctl, 'amd', evt); logger.info(`call ${callSid}: AMD ${type}`); emitEvent('phone.amd', ctl.ownerSession || ctl.sessionId, { callSid, type }); applyWho(ctl, ctl.who.observe({ type: 'amd', result: type })); });
   emitEvent('phone.ask', ctl.ownerSession || ctl.sessionId, { callSid, askId, to: ask.to, name: ask.name, question: ask.question });
   // Tell the HOST on the owner's leg how to behave while this call runs (12 Nov): the old
   // behaviour was a "hang tight / nearly there" filler every few seconds, which the person
@@ -468,9 +492,10 @@ function onAskS2sTool(ctl, evt) {
     emitEvent('phone.relay', ctl.ownerSession || ctl.sessionId, { callSid, direction: 'outcome', name: ask.name, text: outcome });
     { const o = ownerLegOf(ctl); if (o?.lastAsk) o.lastAsk.outcome = outcome; }
     if (!ctl.askResolved && outcome) {
+      if (ctl.who) applyWho(ctl, ctl.who.finalize(), { final: true });
       ctl.askResolved = true;
       // The leg's transcript rides on the event so the console/recap can show the whole outbound conversation.
-      emitEvent('phone.answer', ctl.ownerSession || ctl.sessionId, { callSid, askId: ctl.askId, answer: outcome, name: ask.name, reached: 'person', transcript: ctl.transcript.slice(-24).map((t) => ({ role: t.role === 'assistant' ? 'aria' : 'them', text: t.text })) });
+      emitEvent('phone.answer', ctl.ownerSession || ctl.sessionId, { callSid, askId: ctl.askId, answer: outcome, name: ask.name, reached: 'person', answered_by: ctl.whoKind || null, transcript: ctl.transcript.slice(-24).map((t) => ({ role: t.role === 'assistant' ? 'aria' : 'them', text: t.text })) });
       resolveAsk(ctl.askId, { answer: outcome, relayed: Boolean(owner), transcript: ctl.transcript.slice(-10).map((t) => `${t.role === 'assistant' ? 'Me' : 'Them'}: ${t.text}`).join(' | ') });
     }
     if (!owner) {
@@ -494,9 +519,10 @@ function onAskS2sTool(ctl, evt) {
   const reached = String(args.reached || 'person');
   emitAskTranscript(ctl, answer);
   if (!ctl.askResolved) {
+    if (ctl.who) applyWho(ctl, ctl.who.finalize(), { final: true });
     ctl.askResolved = true;
     const ask = getAsk(ctl.askId) || {};
-    emitEvent('phone.answer', ctl.ownerSession || ctl.sessionId, { callSid, askId: ctl.askId, answer, name: ask.name, reached });
+    emitEvent('phone.answer', ctl.ownerSession || ctl.sessionId, { callSid, askId: ctl.askId, answer, name: ask.name, reached, answered_by: ctl.whoKind || null });
     resolveAsk(ctl.askId, answer
       ? { answer, transcript: ctl.transcript.slice(-10).map((t) => `${t.role === 'assistant' ? 'Me' : 'Them'}: ${t.text}`).join(' | ') }
       : { error: reached === 'voicemail' ? 'voicemail answered — I left a short message' : reached === 'ivr' ? 'an automated phone menu answered, not a person' : 'no clear answer was obtained on the call', answer: '' });
@@ -530,6 +556,7 @@ function onAskS2sEvent(ctl, evt) {
   // arrives — the relay guard rejected a legitimate report_outcome as "they haven't answered". VAD
   // is real-time: their speech ending is the fact we need.
   if (/^input_audio_buffer\.(speech_stopped|committed)$/.test(t)) ctl.lastFarEndAt = Date.now();
+  if (t === 'input_audio_buffer.speech_started') ctl.farStartAt = Date.now();
   if (t === 'response.done') {
     ctl.s2sBusy = false;
     meterS2sResponse(ctl, evt);
@@ -548,13 +575,24 @@ function onAskS2sEvent(ctl, evt) {
   if (last && last.role === role) last.text += text; else ctl.transcript.push({ role, text });
   const full = ctl.transcript.at(-1).text;
   // Surface the far-end conversation in the owner's console using the existing phone rows.
-  if (role === 'user') { ctl.lastFarEndAt = Date.now(); ctl.ivr.heard[Math.max(0, ctl.transcript.length - 1)] = full; emitEvent('phone.ivr', ctl.ownerSession || ctl.sessionId, { callSid: ctl.callSid, step: ctl.ivr.steps += 0, heard: full.slice(0, 180) }); }
-  else { emitEvent('phone.ivr_action', ctl.ownerSession || ctl.sessionId, { callSid: ctl.callSid, step: ctl.ivr.steps, action: 'say', say: full.slice(0, 140) }); }
+  if (role === 'user') {
+    ctl.lastFarEndAt = Date.now(); ctl.ivr.heard[Math.max(0, ctl.transcript.length - 1)] = full;
+    emitEvent('phone.ivr', ctl.ownerSession || ctl.sessionId, { callSid: ctl.callSid, step: ctl.ivr.steps += 0, heard: full.slice(0, 180) });
+    // How long after Aria finished did they START speaking (speech_started), not when the transcript landed.
+    const sinceSaidMs = ctl.lastAriaSaidAt && ctl.farStartAt ? Math.max(0, ctl.farStartAt - ctl.lastAriaSaidAt) : null;
+    const durationMs = ctl.farStartAt && ctl.lastFarEndAt > ctl.farStartAt ? ctl.lastFarEndAt - ctl.farStartAt : null;
+    if (ctl.who) applyWho(ctl, ctl.who.observe({ type: 'heard', text, sinceSaidMs, durationMs }));
+  } else {
+    ctl.lastAriaSaidAt = Date.now();
+    if (ctl.who) ctl.who.observe({ type: 'said', text });
+    emitEvent('phone.ivr_action', ctl.ownerSession || ctl.sessionId, { callSid: ctl.callSid, step: ctl.ivr.steps, action: 'say', say: full.slice(0, 140) });
+  }
 }
 
 function onAskS2sDone(ctl, evt) {
   note(ctl, 'ask-s2s-done', evt);
   if (ctl.askResolved) return;
+  if (ctl.whoRedirected) { logger.info(`call ${ctl.callSid}: s2s leg ended by the IVR switch — gather loop already running`); return; }
   // The S2S leg died before finish_call (connect error, model hangup, far-end oddity). Fall back
   // to the classic gather loop on the SAME live call so the errand still completes.
   logger.warn(`call ${ctl.callSid}: ask s2s ended without an answer (${evt.completion_reason || 'n/a'}) — falling back to gather loop`);
@@ -574,7 +612,7 @@ You cannot see anything — you only HEAR the line. The far end is either a PERS
 - A PERSON has answered or is waiting (e.g. "hello?", "how can I help?"): {"action":"say_and_listen","say":"<what to say>"}. On your FIRST words, introduce yourself briefly and state the goal. A good opener to adapt: "${opener}". Later, reply naturally to move toward the goal.
 - You now HAVE the answer / the order or booking is confirmed: {"action":"done","answer":"<one short sentence to report back to ${onBehalfOf}>"}.
 - Silence, or a menu still being read and you should keep listening: {"action":"wait"}.
-Keep spoken lines short and natural. With a PERSON, sound like a relaxed human caller — contractions, warm and brief ("oh hi!", "no worries"), never corporate or scripted; greet first, then the reason, and respond to what they actually say rather than pushing the goal in one breath. Never hang up on silence or a pause — check in instead ("you still there?"). Never dial numbers unrelated to the goal.`;
+${ctl.ivr.posture ? `\n${ctl.ivr.posture}\n` : ''}${ctl.ivr.mapHint ? `\nKNOWN MENU for this number (mapped on an earlier call — trust it over guessing; pick the key that leads toward the goal, and you may send a short key sequence in one dtmf action when the path is known):\n${ctl.ivr.mapHint}\n` : ''}Keep spoken lines short and natural. With a PERSON, sound like a relaxed human caller — contractions, warm and brief ("oh hi!", "no worries"), never corporate or scripted; greet first, then the reason, and respond to what they actually say rather than pushing the goal in one breath. Never hang up on silence or a pause — check in instead ("you still there?"). Never dial numbers unrelated to the goal.`;
   const user = `Heard so far:\n${hist.length ? hist.map((h, i) => `${i + 1}. ${h}`).join('\n') : '(nothing yet)'}\nActions you've taken: ${said.length ? said.join(' ; ') : '(none)'}\nMost recent: "${heard || '(silence)'}"\nStep ${steps}. Reply with the JSON action only.`;
   const out = await completeText({ model: config.llm.fastModel, messages: [{ role: 'system', content: sys }, { role: 'user', content: user }], params: { max_tokens: 220, temperature: 0 } });
   const m = String(out).match(/\{[\s\S]*\}/);
@@ -588,6 +626,7 @@ async function onAskStep(ctl, evt) {
   const heard = extractGatherSpeech(evt);
   ctl.ivr.steps += 1;
   if (heard) ctl.ivr.heard.push(heard);
+  if (heard && ctl.who) applyWho(ctl, ctl.who.observe({ type: 'heard', text: heard }));
   emitEvent('phone.ivr', ctl.ownerSession || ctl.sessionId, { callSid, step: ctl.ivr.steps, heard: heard.slice(0, 180) });
   if (ctl.ivr.steps > MAX_IVR_STEPS) { logger.warn(`call ${callSid}: ask hit max IVR steps`); return finishAsk(ctl, heard || ''); }
   let decision;
@@ -603,12 +642,56 @@ async function onAskStep(ctl, evt) {
     if (digits) { ctl.ivr.said.push(`[pressed ${digits}]`); verbs.push({ verb: 'dtmf', dtmf: digits }); }
     verbs.push(askGather(ctl, { timeout: 15 }));
   } else if (decision.action === 'say' || decision.action === 'say_and_listen') {
-    if (decision.say) ctl.ivr.said.push(decision.say);
+    if (decision.say) { ctl.ivr.said.push(decision.say); if (ctl.who) ctl.who.observe({ type: 'said', text: decision.say }); }
     verbs.push(askGather(ctl, { say: decision.say || '', timeout: 15 }));
   } else {
     verbs.push(askGather(ctl, { timeout: 12 }));
   }
   session.addVerbs(verbs).reply();
+}
+
+// Remembered per number (in memory): the next call to the same line starts with a small prior.
+const whoAnsweredBefore = new Map();
+/** Act on a who-answered verdict: once decided (or revised), tell the console, remember it, and
+ *  set Aria's posture — a standing note on the S2S leg, a prompt line on the gather loop, or (opt-in,
+ *  PHONE_ASK_IVR_SWITCH=1) a lane switch from S2S to the DTMF-capable gather loop for a menu. */
+function applyWho(ctl, v, { final = false } = {}) {
+  if (!v) return;
+  // Stubborn human-vs-agent tie on an outbound Realtime leg: ask the one-line probe, once.
+  if (v.probe && !v.decided && ctl.mode === 'ask' && ctl.lane === 'ask-s2s' && !ctl.probed && !ctl.askResolved) {
+    ctl.probed = true;
+    logger.info(`call ${ctl.callSid}: who-answered tie — asking the probe line`);
+    emitEvent('phone.probe', ctl.ownerSession || ctl.sessionId, { callSid: ctl.callSid, turns: v.turns });
+    injectRealtimeUserText(ctl, `(Before you go on, ask in ONE light line: "${ctl.who.probeLine()}" Take their answer at face value, thank them, and carry on with the goal.)`, { respond: false });
+  }
+  if (!v.decided || (ctl.askResolved && !final)) return;
+  if (ctl.whoKind === v.kind) return;
+  const changed = Boolean(ctl.whoKind);
+  ctl.whoKind = v.kind;
+  const number = ctl.mode === 'ask' ? (getAsk(ctl.askId) || ctl.ivr || {}).to : ctl.direction === 'inbound' ? ctl.from : null;
+  if (number) { whoAnsweredBefore.set(number, { kind: v.kind, at: Date.now() }); rememberVerdict(number, v); }
+  if (ctl.mode !== 'ask') {
+    // Inbound: who is calling. Only an agent caller changes Aria's posture.
+    logger.info(`call ${ctl.callSid}: WHO IS CALLING -> ${v.kind} (${Math.round(v.confidence * 100)} %, ${v.by}${changed ? ', revised' : ''}) — ${v.cues.slice(-3).join('; ')}`);
+    emitEvent('phone.answered_by', ctl.sessionId, { callSid: ctl.callSid, direction: 'inbound', kind: v.kind, confidence: v.confidence, by: v.by, changed, turns: v.turns, cues: v.cues.slice(-5) });
+    if (final) return;
+    const note = inboundPostureFor(v.kind);
+    if (note && ctl.lane !== 'cascaded') injectRealtimeUserText(ctl, note, { respond: false });
+    return;
+  }
+  logger.info(`call ${ctl.callSid}: WHO ANSWERED -> ${v.kind} (${Math.round(v.confidence * 100)} %, ${v.by}${changed ? ', revised' : ''}) — ${v.cues.slice(-3).join('; ')}`);
+  emitEvent('phone.answered_by', ctl.ownerSession || ctl.sessionId, { callSid: ctl.callSid, direction: 'outbound', kind: v.kind, confidence: v.confidence, by: v.by, changed, turns: v.turns, amd: v.amd, cues: v.cues.slice(-5) });
+  if (final) return; // best guess at the end of the leg: for the console and the per-number memory only
+  const posture = postureFor(v.kind, { who: ctl.ivr?.onBehalfOf || config.agentName, them: ctl.ivr?.name || 'them', goal: ctl.ivr?.goal || '', callback: config.phoneAsk.fromNumber || config.jambonz.fromNumber || '' });
+  ctl.ivr.posture = posture;
+  if (ctl.lane === 'ask-s2s') {
+    if (v.kind === 'ivr' && !/^(0|false|off)$/i.test(process.env.PHONE_ASK_IVR_SWITCH || '')) {
+      // A menu can't be worked from the Realtime leg (no keys); hand the SAME call to the gather loop.
+      ctl.whoRedirected = true; ctl.lane = 'ask';
+      logger.info(`call ${ctl.callSid}: IVR detected — switching to the DTMF gather loop`);
+      try { ctl.session.sendCommand('redirect', [askGather(ctl, { timeout: 12 })]); } catch (err) { logger.warn(`call ${ctl.callSid}: IVR switch failed: ${err.message}`); }
+    } else injectRealtimeUserText(ctl, posture, { respond: false });
+  }
 }
 
 function finishAsk(ctl, answer) {
@@ -617,6 +700,7 @@ function finishAsk(ctl, answer) {
   ctl.askResolved = true;
   const ask = getAsk(ctl.askId) || {};
   const text = String(answer || '').trim();
+  if (ctl.who) applyWho(ctl, ctl.who.finalize(), { final: true });
   logger.info(`call ${callSid}: ask finished, answer="${text.slice(0, 90)}"`);
   emitEvent('phone.answer', ctl.ownerSession || ctl.sessionId, { callSid, askId: ctl.askId, answer: text, name: ask.name });
   resolveAsk(ctl.askId, text ? { answer: text, transcript: (ctl.ivr?.heard || []).join(' | ') } : { error: 'no clear answer was obtained on the call', answer: '' });
@@ -715,7 +799,7 @@ function cleanup(ctl, reason = 'closed') {
   recent.unshift({ call_sid: ctl.callSid, mode: ctl.mode, lane: ctl.lane, session: ctl.sessionId, from: ctl.from, to: ctl.to, direction: ctl.direction, started_at: ctl.startedAt, ended_at: Date.now(), ended_after_ms: Date.now() - ctl.startedMs, end_reason: reason, swaps: ctl.swaps, events: ctl.events, transcript: ctl.transcript.slice(-8) });
   if (recent.length > 20) recent.length = 20;
   bus.removeAllListeners(topic(ctl.callSid, 'handback'));
-  emitEvent('call.end', ctl.sessionId, { callSid: ctl.callSid, reason, swaps: ctl.swaps, duration_ms: Date.now() - ctl.startedMs });
+  emitEvent('call.end', ctl.sessionId, { callSid: ctl.callSid, reason, swaps: ctl.swaps, duration_ms: Date.now() - ctl.startedMs, mode: ctl.mode, ownerSession: ctl.ownerSession });
   getObservability().event(ctl.sessionId, 'call.end', { callSid: ctl.callSid, reason, swaps: ctl.swaps, duration_ms: Date.now() - ctl.startedMs }).catch(() => {});
   logger.info(`call ${ctl.callSid} done (mode=${ctl.mode}, swaps=${ctl.swaps}, ${reason})`);
 }
@@ -729,6 +813,9 @@ function onAgentEvent(ctl, evt) {
     logger.error(`call ${ctl.callSid}: harness failure ${JSON.stringify(evt)}`);
   } else if (evt.type && evt.type !== 'user_transcript' && evt.type !== 'llm_response') note(ctl, `agent-event:${evt.type}`, evt);
 }
+
+/** End the current transcript line of `role`: the next chunk of that role starts a new line. */
+function closeLine(ctl, role) { const last = ctl.transcript.at(-1); if (last && last.role === role) last.closed = true; }
 
 function onS2sEvent(ctl, evt) {
   // jambonz.cloud passes the raw Gemini/OpenAI message through with snake_case keys.
@@ -744,6 +831,8 @@ function onS2sEvent(ctl, evt) {
   // Response lifecycle: while the model is responding (or about to — caller speech commits
   // auto-create a response under server_vad), an injected response.create would kill the leg.
   if (t === 'response.created') ctl.s2sBusy = true;
+  // 15 Nov: a response boundary closes Aria's current transcript line (see the folding below).
+  if (t === 'response.done' || evt?.serverContent?.turnComplete || evt?.server_content?.turn_complete) closeLine(ctl, 'assistant');
   if (t === 'response.done') {
     ctl.s2sBusy = false;
     meterS2sResponse(ctl, evt);
@@ -761,19 +850,34 @@ function onS2sEvent(ctl, evt) {
     // barge_in row in the feed means the VAD never heard the talk-over at all.
     const barge = t.endsWith('speech_started') && ctl.s2sBusy;
     if (t.endsWith('speech_started') || t.endsWith('committed')) ctl.s2sBusy = true; // a response will follow
+    if (t.endsWith('speech_started')) { ctl.farStartAt = Date.now(); closeLine(ctl, 'user'); }
     if (t.endsWith('speech_stopped') || t.endsWith('committed')) ctl.lastUserSpeechAt = Date.now();
+    // 15 Nov: remember WHEN this utterance started, keyed by the item its transcript will carry —
+    // the text transcription lands seconds later, after Aria has already begun answering.
+    if (t.endsWith('committed') && evt?.item_id) { (ctl.itemAt ||= new Map()).set(evt.item_id, ctl.farStartAt || Date.now()); if (ctl.itemAt.size > 50) ctl.itemAt.delete(ctl.itemAt.keys().next().value); }
     emitEvent('s2s.vad', ctl.sessionId, { callSid: ctl.callSid, phase: barge ? 'barge_in' : t.split('.')[1] });
     return;
   }
   const found = evt?.transcript ? { text: evt.transcript, role: /input/i.test(t) ? 'user' : 'assistant' } : findTranscription(evt);
   if (!found) return;
   const { text, role } = found;
-  if (role === 'assistant') ctl.lastAssistantAt = Date.now();
+  if (role === 'assistant') { ctl.lastAssistantAt = Date.now(); if (ctl.who) ctl.who.observe({ type: 'said', text }); }
+  // 15 Nov: ONE transcript line per spoken item. Before this, lines folded on role adjacency alone,
+  // so when the caller's transcription arrived late (it always does) Aria's next answer was glued
+  // onto her previous line ("…what are we getting up to today?Sure thing, let me check…"). A line
+  // is keyed by the provider's item id when there is one and closed at a response/turn boundary
+  // (or the next speech start) otherwise; each line carries `at`, the moment it was spoken.
+  const item = evt?.item_id || evt?.item?.id || null;
   const last = ctl.transcript.at(-1);
-  const newLine = !(last && last.role === role);
-  if (newLine) ctl.transcript.push({ role, text }); else last.text += text;
-  const full = ctl.transcript.at(-1).text;
-  emitEvent('s2s.transcript', ctl.sessionId, { callSid: ctl.callSid, role, delta: text, text: full, agent: role === 'assistant' ? { id: HOST.id, name: HOST.name, color: HOST.color } : null });
+  const newLine = !(last && last.role === role && !last.closed && (!item || !last.item || last.item === item));
+  if (newLine) {
+    const at = role === 'user' ? ((item && ctl.itemAt?.get(item)) || ctl.farStartAt || Date.now()) : Date.now();
+    if (item) ctl.itemAt?.delete(item);
+    ctl.transcript.push({ role, text, item, at });
+  } else last.text += text;
+  const line = ctl.transcript.at(-1), lineNo = ctl.transcript.length - 1;
+  const full = line.text;
+  emitEvent('s2s.transcript', ctl.sessionId, { callSid: ctl.callSid, role, delta: text, text: full, item: line.item || null, line: lineNo, at: line.at, agent: role === 'assistant' ? { id: HOST.id, name: HOST.name, color: HOST.color } : null });
   // Score the caller's spoken line so the sentiment chart fills on a voice call too. The
   // Gemini transcription arrives in pieces: one point per caller line, updated as it grows.
   if (role === 'user') {
@@ -782,7 +886,12 @@ function onS2sEvent(ctl, evt) {
     const hist = (ctl.sentiment || []);
     if (newLine) hist.push(s.score); else if (hist.length) hist[hist.length - 1] = s.score;
     ctl.sentiment = hist.slice(-40);
-    emitEvent('caller.said', ctl.sessionId, { callSid: ctl.callSid, turn: ctl.callerTurns, text: full, sentiment: s, trend: trendOf(ctl.sentiment), via: 's2s' });
+    emitEvent('caller.said', ctl.sessionId, { callSid: ctl.callSid, turn: ctl.callerTurns, text: full, sentiment: s, trend: trendOf(ctl.sentiment), via: 's2s', at: line.at });
+    if (ctl.who && newLine) {
+      const sinceSaidMs = ctl.lastAssistantAt && ctl.farStartAt ? Math.max(0, ctl.farStartAt - ctl.lastAssistantAt) : null;
+      const durationMs = ctl.farStartAt && ctl.lastUserSpeechAt && ctl.lastUserSpeechAt > ctl.farStartAt ? ctl.lastUserSpeechAt - ctl.farStartAt : null;
+      applyWho(ctl, ctl.who.observe({ type: 'heard', text, sinceSaidMs, durationMs }));
+    }
     scheduleMoodRefine(ctl);
     armRequestWatchdog(ctl, full);
   } else if (newLine && LANGUAGE_SLIP_RX.test(text)) {
@@ -814,7 +923,7 @@ function scheduleMoodRefine(ctl) {
 // for an ACTION and no tool has fired within a few seconds — and nothing is already in progress —
 // nudge the host once to act on it, in English.
 const ACTION_RX = /\b(text|sms|send|message|whatsapp|email|find|look up|search|open|pull up|bring up|book|order|ring|call|phone|drop a pin|pin it|show me|work out|figure out|check|compare|read|remind|add .* (calendar|diary)|put .* (calendar|diary))\b/i;
-const LANGUAGE_SLIP_RX = /[¡¿]|\b(qué|está|estás|hola|gracias|bueno|escucharte|sigamos|hoy|cómo|puedo|ayudarte|bonjour|merci|danke|ciao)\b/i;
+const LANGUAGE_SLIP_RX = /[¡¿]|\b(qué|está|estás|hola|gracias|bueno|escucharte|sigamos|hoy|cómo|puedo|ayudarte|bonjour|merci|danke|ciao|olá|beleza|bora|tô|você|obrigad[oa]|tudo bem|puxando|vamos lá)\b/i; // 15 Nov: + Portuguese (gpt-realtime opened in it)
 function armRequestWatchdog(ctl, text) {
   if (!ACTION_RX.test(text) || /^(hello|hi|hey)\b.*(still there|are you there)/i.test(text)) return;
   clearTimeout(ctl.requestWatch);
@@ -936,6 +1045,15 @@ function onS2sTool(ctl, evt) {
     return;
   }
   const request = args.request || args.question || ctl.transcript.filter((t) => t.role === 'user').at(-1)?.text || 'the caller just asked for something on the web';
+  // 15 Nov: "hello" is not a job. The Realtime model browsed for a typed "hello" (the opening note
+  // told it to act IMMEDIATELY); the team answered "Hey! What can I do for you?" — nonsense as a
+  // tool result. Small talk gets a no-op answer and Aria just talks.
+  if (isChitChat(request)) {
+    logger.info(`call ${callSid}: browse_for_caller("${String(request).slice(0, 40)}") is small talk — no browse`);
+    emitEvent('team.skipped', ctl.sessionId, { callSid, request: String(request).slice(0, 120), why: 'small talk' });
+    sendS2sToolOutput(ctl, { name, callId, fnId: fn.id, output: { note: 'Nothing to look up — that was just a hello / small talk, not a request. Reply yourself in ONE short friendly line (say hi back, ask what they are after) and do not call this tool again until they ask for something.' } });
+    return;
+  }
   // ONE VOICE (default): run the team in the BACKGROUND and hand the answer back to Aria, who speaks
   // it on her own Realtime leg — the call never leaves her, so the whole call is one voice. The old
   // path (voice swap to the cascaded Chirp specialist) stays as a fallback behind S2S_BACKGROUND_BROWSE=0.
@@ -1017,7 +1135,7 @@ async function runBackgroundBrowse(ctl, { request, context, name, callId, fnId }
     nav.metadata = { ...nav.metadata, worker: true }; // self-contained turn (no Lead orchestration)
     const ask = context ? `${request}\n\n(context: ${context})` : request;
     const writer = textWriter();
-    const turn = await nav.turn(ask, writer, { kind: 'speech' });
+    const turn = await nav.turn(ask, writer, { kind: 'speech', team: true }); // team:true — the request is Aria's hand-off, not the caller's words
     const answer = (writer.text || '').trim() || "I looked but couldn't find that just now.";
     logger.info(`call ${callSid}: background browse done in ${Date.now() - t0} ms (${answer.length} chars)`);
     // 13 Nov: MULTIMODAL — the team's work is mirrored on the caller's Personal Voice Browser. When

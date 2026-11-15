@@ -32,7 +32,7 @@ VISIBILITY="private"
 DRY_RUN=0
 
 # Paths that must never reach GitHub (mirrors .gitignore; belt and braces).
-SENSITIVE_RE='^(\.env$|\.mcp-servers\.json$|\.tasks\.json$|\.tasks-media/|\.test-dial\.json$|\.live-calls\.json$|\.kb-cache\.json$|\.chatbots\.json$|memory/|knowledge/KB-contacts\.md$|knowledge/KB-family\.md$|knowledge/caller-preferences\.md$|public/recaps/|public/ivr-maps/|.ivr-maps/|\.profile/|profiles/|logs/|dist/)'
+SENSITIVE_RE='^(\.env$|\.mcp-servers\.json$|\.tasks\.json$|\.tasks-media/|\.test-dial\.json$|\.live-calls\.json$|\.kb-cache\.json$|\.chatbots\.json$|memory/|knowledge/KB-contacts\.md$|knowledge/KB-family\.md$|knowledge/caller-preferences\.md$|public/recaps/|public/ivr-maps/|.ivr-maps/|.who-answered.json|\.profile/|profiles/|logs/|dist/)'
 
 usage() {
     sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'

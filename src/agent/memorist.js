@@ -51,7 +51,7 @@ export function initMemorist() {
     if (!sid || sid.includes('#w-')) return; // worker sub-sessions are narration noise
     switch (ev.type) {
       case 'caller.said': if (ev.text) note(sid, `[owner] ${ev.text}`); break;
-      case 'agent.said': if (ev.text) note(sid, `[aria] ${ev.text}`); break;
+      case 'agent.said': if (ev.text) note(sid, `[${ev.team ? 'team → aria' : 'aria'}] ${ev.text}`); break;
       case 'browser.page': if (ev.url && !/^about:/i.test(ev.url)) note(sid, `[visited] ${ev.title || ''} — ${ev.url}`); break;
       case 'phone.result': if (!ev.relayed || ev.answer) note(sid, `[phoned ${ev.name || ''}] ${ev.answer || ev.error || ''}`); break;
       case 'sms.sent': note(sid, `[sms to ${ev.to}] ${String(ev.body || '').slice(0, 160)}`); break;

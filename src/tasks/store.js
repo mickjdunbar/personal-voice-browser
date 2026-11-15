@@ -23,6 +23,7 @@ import { completeText } from '../llm/client.js';
 import { getBrowser } from '../browser/browser.js';
 import { config } from '../config.js';
 import { createLogger } from '../logger.js';
+import { saveAttachment, composeTurnText, imageDataUrls, attachmentSummary, MAX_ATTACHMENTS } from './attachments.js';
 
 const logger = createLogger('Tasks');
 const FILE = process.env.TASKS_FILE || '.tasks.json';
@@ -45,6 +46,13 @@ const TASK_NOTE = 'This conversation is an ASYNC TASK THREAD over text (like tex
   + 'You can SHOW things on this thread: share_screenshot attaches a picture of the page your browser '
   + 'is on RIGHT NOW, and share_sketch attaches a diagram you draw yourself as SVG. Use one whenever a '
   + 'picture beats words (a chart, a map, a product, a layout, a comparison), then refer to it in your reply. '
+  // 14 Nov pm: a task agent told the owner "the BOM page is up on your Personal Voice Browser" while the
+  // pane was empty — the live mirror is a feature of the CALL, not of this thread.
+  + 'THE OWNER\'S SCREEN: this thread is NOT the live call. Your browser is mirrored to the owner only while '
+  + 'they have THIS thread open in their console (it then says "watching task"); on their phone they see '
+  + 'nothing but your messages and attachments. So never say something is "on your Personal Voice Browser" '
+  + 'or "on your screen" from here — if the page itself matters, share_screenshot it into the thread (that '
+  + 'is permanent) and say "screenshot attached". '
   // 13 Nov (H-07): a task agent went hunting for a WhatsApp MCP action and told the owner "WhatsApp
   // isn't connected" — while its own reply was already being forwarded to their WhatsApp.
   + 'YOUR REPLY IN THIS THREAD *IS* THE MESSAGE TO THE OWNER: it is delivered to their phone (WhatsApp/SMS) '
@@ -116,16 +124,20 @@ export function taskBySeq(seq) {
 export const taskContact = (id) => tasks.get(id)?.contact || null;
 
 // --- lifecycle --------------------------------------------------------------------
-export function createTask({ title, text, via = 'console', contact = null } = {}) {
+export function createTask({ title, text, via = 'console', contact = null, attachments = [], web = undefined } = {}) {
+  const hasFiles = Array.isArray(attachments) && attachments.length > 0;
   const id = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
   const now = new Date().toISOString();
   const t = {
     id,
     seq: ++seqCounter,
-    title: String(title || '').trim() || String(text || '').trim().slice(0, 56) || 'New task',
+    title: String(title || '').trim() || String(text || '').trim().slice(0, 56) || (hasFiles ? String(attachments[0]?.name || 'Attachment').slice(0, 56) : '') || 'New task',
     status: 'waiting', created_at: now, updated_at: now, messages: [],
     // Where this task was born when it came from a phone message: Aria's replies go back there.
     ...(contact ? { contact: { channel: contact.channel, to: contact.to } } : {}),
+    // 15 Nov: born on the web client (console, or a WebRTC call from it)? Talk Settings may then be
+    // changed from this thread (navigator.fromWebClient); a phone/WhatsApp/SMS-born thread may not.
+    web: typeof web === 'boolean' ? web : via === 'console',
     running: 0, queue: Promise.resolve()
   };
   tasks.set(id, t);
@@ -150,7 +162,10 @@ export function createTask({ title, text, via = 'console', contact = null } = {}
       if (line && task) { task.title = line; save(); broadcast(task); }
     }).catch(() => {});
   }
-  if (String(text || '').trim()) ownerMessage(id, text, via);
+  if (String(text || '').trim() || hasFiles) {
+    const r = ownerMessage(id, text, via, attachments);
+    if (r.error) { tasks.delete(id); save(); return { error: r.error }; }
+  }
   return getTask(id);
 }
 
@@ -244,19 +259,28 @@ export function postNote(id, text) {
 /** The single entry point for an owner message, whatever the transport (console today;
  *  an SMS/WhatsApp webhook would call this too, with its own `via`). Returns at once —
  *  the turn runs in the background and the thread fills via `tasks.update` events. */
-export function ownerMessage(id, text, via = 'console') {
+export function ownerMessage(id, text, via = 'console', attachments = []) {
   const t = tasks.get(id);
   if (!t) return { error: 'no such task' };
   const line = String(text || '').trim();
-  if (!line) return { error: 'text required' };
-  const msg = { role: 'owner', text: line, at: new Date().toISOString(), via };
+  // 14 Nov: owner attachments (pasted / dropped / picked images and documents). Saved first so
+  // the message can carry their URLs; a message may be attachments alone.
+  const files = Array.isArray(attachments) ? attachments.slice(0, MAX_ATTACHMENTS) : [];
+  if (!line && !files.length) return { error: 'text or attachments required' };
+  const media = [];
+  for (const f of files) {
+    const r = saveAttachment(id, f);
+    if (r.error) return { error: r.error };
+    media.push(r);
+  }
+  const msg = { role: 'owner', text: line, at: new Date().toISOString(), via, ...(media.length ? { media } : {}) };
   push(t, msg);
   t.status = 'working';
   save();
   broadcast(t, msg);
   t.running += 1;
   t.queue = t.queue
-    .then(() => runTurn(t, line))
+    .then(() => runTurn(t, line, media))
     .catch((err) => logger.warn(`task ${id} turn failed: ${err.message}`))
     .finally(() => {
       t.running = Math.max(0, t.running - 1);
@@ -271,7 +295,7 @@ function push(t, msg) {
   t.updated_at = msg.at;
 }
 
-async function runTurn(t, text) {
+async function runTurn(t, text, media = []) {
   const sid = sessionOf(t.id);
   // metadata.task: marks the Navigator as a task session — it gets a bigger tool budget for
   // research (nobody is waiting on a live line) and does NOT get the create_task tool (no
@@ -282,12 +306,22 @@ async function runTurn(t, text) {
   // message is the one this turn is about to run — it must not be pre-seeded too.
   if (nav.turns === 0 && nav.history.length === 0 && t.messages.length > 1) {
     for (const m of t.messages.slice(0, -1).slice(-24)) {
-      if (m.text) nav.history.push({ role: m.role === 'owner' ? 'user' : 'assistant', content: m.text });
+      const line = String(m.text || '') + (m.role === 'owner' ? attachmentSummary(m.media) : '');
+      if (line.trim()) nav.history.push({ role: m.role === 'owner' ? 'user' : 'assistant', content: line });
     }
   }
+  // 14 Nov pm: what is actually running in this thread, checked now (a restart-killed map used to be
+  // reported as "still running" because the model only had the chat history to go on).
+  try { const { ivrMapStatus } = await import('../phone/ivrmap.js'); nav.metadata.liveStatus = ivrMapStatus(t.id) || ''; } catch { nav.metadata.liveStatus = ''; }
+  // 15 Nov: the owner is "on the web client" for this turn if the thread was born there or this
+  // very message was typed in the console (not relayed from WhatsApp/SMS).
+  nav.metadata.webOwner = Boolean(t.web) || (t.messages.filter((m) => m.role === 'owner').at(-1)?.via || '') === 'console';
   const writer = textWriter();
-  emitEvent('turn.start', sid, { channel: 'task', input: 'text', text });
-  await nav.turn(text, writer, { kind: 'speech' });
+  // Documents become text under the owner's words; images ride along as vision parts.
+  const input = media.length ? await composeTurnText(text, media) : text;
+  const images = media.length ? imageDataUrls(media) : [];
+  emitEvent('turn.start', sid, { channel: 'task', input: 'text', text, attachments: media.length || undefined });
+  await nav.turn(input, writer, { kind: 'speech', images });
   // The reply itself arrives through the agent.said subscription below (one path for
   // prompted replies AND async updates — phone answers, team narration).
 }

@@ -25,7 +25,7 @@ import { createConductor, liveConductorCalls, recentConductorCalls, injectCaller
 import { setContext, getContext, identify } from './context.js';
 import { onProfileChange } from './profile.js';
 import { setTestTarget, getTestTarget, clearTestTarget } from './phone/testTarget.js';
-import { startIvrMap, listIvrMaps, getIvrMap, stopIvrMap } from './phone/ivrmap.js'; // 14 Nov: IVR mapper
+import { startIvrMap, listIvrMaps, getIvrMap, stopIvrMap, resumeIvrMap } from './phone/ivrmap.js'; // 14 Nov: IVR mapper
 import { listBots, publicBots, setBots } from './chat/bots.js';
 import { providerMeta } from './chat/providers.js';
 import { listServers, publicServers, setServers, presetMeta, findServer } from './mcp/servers.js';
@@ -33,6 +33,7 @@ import { probeServer, listToolsFor } from './mcp/client.js';
 import { placeCall, registerApplications, jambonz } from './jambonzApi.js';
 import { getSession, peekSession, endSession, listSessions } from './agent/sessions.js';
 import { listTasks, getTask, createTask, ownerMessage, setStatus, deleteTask, deleteTasks, postNote } from './tasks/store.js';
+import { SERVED_TYPES as TASK_MEDIA_TYPES } from './tasks/attachments.js';
 import { initTransports, handleInboundMessage } from './tasks/transports.js';
 import { initMemorist } from './agent/memorist.js';
 import { initScreens, listScreens, clearScreens } from './screens.js';
@@ -64,7 +65,50 @@ const obs = getObservability();
 let lastRegistration = { skipped: 'not run' };
 
 // --- call recordings (jambonz RecentCalls): list + authenticated audio proxy ----------
-let recCache = { at: 0, calls: [], byId: {} };
+let recCache = { at: 0, calls: [], all: [], byId: {} };
+// 14 Nov pm: WHICH recordings belong to a session's call is decided by a ledger of call sids, not
+// by time. Before this, the list was "everything since the newest call to our PSTN number", so a
+// WebRTC recap (dialled to the app, not the number) swept in every task call and IVR-map leg of the
+// afternoon. Owner calls (inbound PSTN, WebRTC orb) open an entry; ask legs join their owner's.
+const callLedger = new Map(); // ownerSession -> [{ callSid, from, to, direction, startedAt, endedAt, children: [{callSid,to,at}] }] newest first
+function ledgerFor(session, callSid) {
+  const list = callLedger.get(session) || [];
+  return (callSid && list.find((c) => c.callSid === callSid)) || list[0] || null;
+}
+subscribe((ev) => {
+  if (ev.type === 'call.start') {
+    if (ev.mode === 'ivrmap') return; // map legs belong to their task thread, never to a call recap
+    if (ev.mode === 'ask') { const own = ledgerFor(ev.ownerSession || 'main'); if (own) own.children.push({ callSid: ev.callSid, to: ev.to, at: ev.ts }); return; }
+    const list = callLedger.get(ev.sessionId) || [];
+    list.unshift({ callSid: ev.callSid, from: ev.from, to: ev.to, direction: ev.direction, startedAt: ev.ts, endedAt: null, children: [] });
+    if (list.length > 5) list.length = 5;
+    callLedger.set(ev.sessionId, list);
+  } else if (ev.type === 'call.end' && ev.mode !== 'ask' && ev.mode !== 'ivrmap') {
+    const c = ledgerFor(ev.sessionId, ev.callSid); if (c && !c.endedAt) c.endedAt = ev.ts;
+  }
+});
+/**
+ * Recordings for ONE call: the owner's leg plus the ask legs it spawned (by call sid, mirrors
+ * folded in). Falls back to a time window when the ledger has no entry (server restarted mid-call):
+ * the named call sid plus outbound legs inside [from, to]. `strict` returns [] rather than the
+ * account-wide list when nothing can be scoped.
+ */
+async function recordingsForCall({ session = 'main', call = '', from = 0, to = 0, strict = false } = {}) {
+  await recentRecordings();
+  const all = recCache.all || [];
+  const entry = ledgerFor(session, call);
+  const allowed = new Set();
+  if (entry) { allowed.add(entry.callSid); for (const ch of entry.children) allowed.add(ch.callSid); }
+  if (call) allowed.add(call);
+  const winFrom = (entry ? new Date(entry.startedAt).getTime() : Number(from) || 0) - 5000;
+  const winTo = (entry?.endedAt ? new Date(entry.endedAt).getTime() : Number(to) || 0) + 90000;
+  if (!allowed.size && !(Number(from) > 0)) return strict ? [] : recCache.calls;
+  const twinOf = new Map(); for (const r of all) if (r.mirror_of) twinOf.set(r.mirror_of, r.call_sid);
+  const inSet = (r) => allowed.has(r.call_sid) || (r.mirror_of && allowed.has(r.mirror_of)) || (twinOf.get(r.call_sid) && allowed.has(twinOf.get(r.call_sid)));
+  const inWindow = (r) => !entry && Number(from) > 0 && r.kind === 'outbound' && !/^app-/i.test(String(r.to || '')) && r.t >= winFrom && (!to || r.t <= winTo);
+  const ownerSids = new Set([entry?.callSid, call].filter(Boolean));
+  return all.filter((r) => inSet(r) || inWindow(r)).map(({ t, ...r }) => ({ ...r, role: ownerSids.has(r.call_sid) || ownerSids.has(r.mirror_of) || ownerSids.has(twinOf.get(r.call_sid)) ? 'owner' : 'child' }));
+}
 let lastRecap = { at: 0, url: '', task: '', seq: 0 }; // dedupes the auto-recap when two consoles build it
 async function recentRecordings(limit = 50) {
   if (Date.now() - recCache.at < 8000) return recCache.calls;
@@ -81,7 +125,8 @@ async function recentRecordings(limit = 50) {
     const dialIn = digits(config.phoneAsk.fromNumber || config.jambonz.fromNumber);
     const mapped = raw.map((c) => {
       const sid = c.call_sid || c.sid;
-      const toUs = dialIn ? digits(c.to) === dialIn : c.direction === 'inbound';
+      // 14 Nov pm: a leg dialled to the jambonz application (to = app-…) is the browser caller's own call (the orb).
+      const toUs = /^app-/i.test(String(c.to || '')) || (dialIn ? digits(c.to) === dialIn : c.direction === 'inbound');
       return { call_sid: sid, direction: c.direction, from: c.from, to: c.to, duration: c.duration, answered: c.answered, termination: c.termination_reason, at: c.attempted_at || c.answered_at, t: tOf(c), kind: toUs ? 'inbound' : 'outbound', audio: `/api/recording/${sid}` };
     }).sort((a, b) => b.t - a.t);
     // Every call between two apps on this account shows up TWICE (the A leg and the B leg): a synthetic
@@ -103,7 +148,7 @@ async function recentRecordings(limit = 50) {
     const scoped = newestInbound ? mapped.filter((c) => c.t >= anchor) : mapped.slice(0, 4);
     const calls = scoped.map(({ t, ...c }) => c);
     const byId = {}; for (const c of raw) byId[c.call_sid || c.sid] = c.recording_url;
-    recCache = { at: Date.now(), calls, byId };
+    recCache = { at: Date.now(), calls, all: mapped, byId };
     return calls;
   } catch (err) { logger.warn(`recordings fetch: ${err.message}`); return recCache.calls; }
 }
@@ -225,11 +270,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, r.error ? 400 : 202, r);
     }
     if (p === '/api/ivr/maps' && req.method === 'GET') return json(res, 200, { maps: listIvrMaps() });
-    const im = /^\/api\/ivr\/maps\/([^/]+)(?:\/(stop))?$/.exec(p);
+    const im = /^\/api\/ivr\/maps\/([^/]+)(?:\/(stop|resume))?$/.exec(p);
     if (im) {
       const id = decodeURIComponent(im[1]);
       if (!im[2] && req.method === 'GET') { const m = getIvrMap(id); return json(res, m ? 200 : 404, m || { error: 'no such map' }); }
       if (im[2] === 'stop' && req.method === 'POST') { const r = stopIvrMap(id); return json(res, r.error ? 404 : 200, r); }
+      if (im[2] === 'resume' && req.method === 'POST') { const b = await readJson(req).catch(() => ({})); const r = resumeIvrMap(id, { extraCalls: b?.extra_calls }); return json(res, r.error ? 400 : 202, r); }
     }
     // 14 Nov: the test-dial redirect over HTTP (same power as the console switch on the WebSocket):
     //   GET /api/test-dial?session=… · POST {session?, enabled, number} · DELETE ?session=… (drop a
@@ -242,7 +288,12 @@ const server = http.createServer(async (req, res) => {
     }
     // Tasks: the async text channel (the console's Tasks drawer; transport-agnostic server-side).
     if (p === '/api/tasks' && req.method === 'GET') return json(res, 200, { tasks: listTasks() });
-    if (p === '/api/tasks' && req.method === 'POST') { const b = await readJson(req); if (!String(b.text || b.title || '').trim()) return json(res, 400, { error: 'text or title required' }); return json(res, 201, { task: createTask(b) }); }
+    if (p === '/api/tasks' && req.method === 'POST') {
+      const b = await readJson(req);
+      if (!String(b.text || b.title || '').trim() && !(Array.isArray(b.attachments) && b.attachments.length)) return json(res, 400, { error: 'text, title or attachments required' });
+      const task = createTask(b);
+      return task.error ? json(res, 400, task) : json(res, 201, { task });
+    }
     // Bulk delete (14 Nov): body {ids:[…]} deletes those, {all:true} deletes every task. Nothing implicit.
     if (p === '/api/tasks' && req.method === 'DELETE') {
       const b = await readJson(req);
@@ -255,7 +306,7 @@ const server = http.createServer(async (req, res) => {
       const id = decodeURIComponent(tm[1]);
       if (!tm[2] && req.method === 'GET') { const t = getTask(id); return json(res, t ? 200 : 404, t || { error: 'no such task' }); }
       if (!tm[2] && req.method === 'DELETE') { const r = deleteTask(id); return json(res, r.error ? 404 : 200, r); }
-      if (tm[2] === 'message' && req.method === 'POST') { const b = await readJson(req); const r = ownerMessage(id, b.text, b.via || 'console'); return json(res, r.error ? 400 : 200, r); }
+      if (tm[2] === 'message' && req.method === 'POST') { const b = await readJson(req); const r = ownerMessage(id, b.text, b.via || 'console', b.attachments); return json(res, r.error ? 400 : 200, r); }
       if (tm[2] === 'status' && req.method === 'POST') { const b = await readJson(req); const r = setStatus(id, b.status); return json(res, r.error ? 400 : 200, r); }
     }
     // Tasks over SMS/WhatsApp: the Twilio Messaging webhook ("A MESSAGE COMES IN" on the number
@@ -268,14 +319,17 @@ const server = http.createServer(async (req, res) => {
     }
     // Images attached to task threads (screenshots, sketches). SVGs are model-authored: the CSP
     // header keeps them inert even if opened directly rather than through an <img>.
-    const mediaM = /^\/task-media\/([A-Za-z0-9]+)\/([a-z0-9]+\.(?:png|jpe?g|svg))$/.exec(p);
-    if (req.method === 'GET' && mediaM) {
+    // 14 Nov: owner attachments too (pdf/txt/md/csv/json/docx + gif/webp). Uploaded HTML is served
+    // as plain text and docx as a download, so nothing an owner pastes ever runs in the console origin.
+    const mediaM = /^\/task-media\/([A-Za-z0-9]+)\/([a-z0-9]+\.([a-z0-9]+))$/.exec(p);
+    if (req.method === 'GET' && mediaM && TASK_MEDIA_TYPES[mediaM[3]]) {
       const file = path.join(TASK_MEDIA_DIR, mediaM[1], mediaM[2]);
       if (!file.startsWith(TASK_MEDIA_DIR) || !fs.existsSync(file)) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('not found'); }
-      const type = file.endsWith('.svg') ? 'image/svg+xml' : file.endsWith('.png') ? 'image/png' : 'image/jpeg';
+      const type = TASK_MEDIA_TYPES[mediaM[3]];
       res.writeHead(200, {
         'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'X-Content-Type-Options': 'nosniff',
-        ...(type === 'image/svg+xml' ? { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" } : {})
+        ...(mediaM[3] === 'svg' || mediaM[3] === 'pdf' ? { 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" } : {}),
+        ...(mediaM[3] === 'docx' ? { 'Content-Disposition': 'attachment' } : {})
       });
       return fs.createReadStream(file).pipe(res);
     }
@@ -284,7 +338,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/bots') return json(res, 200, { bots: publicBots(), providers: providerMeta() });
     if (req.method === 'GET' && p === '/api/providers') return json(res, 200, { providers: providerMeta() });
     if (req.method === 'GET' && p === '/api/mcp') return json(res, 200, { servers: publicServers(), presets: presetMeta() });
-    if (req.method === 'GET' && p === '/api/recordings') return json(res, 200, { recordings: await recentRecordings() });
+    if (req.method === 'GET' && p === '/api/recordings') {
+      // ?session=&call=&from=&to=&strict=1 → that call's legs only (14 Nov pm); bare → the legacy account-wide list.
+      const q = url.searchParams;
+      if (q.get('session') || q.get('call')) return json(res, 200, { recordings: await recordingsForCall({ session: q.get('session') || 'main', call: q.get('call') || '', from: q.get('from'), to: q.get('to'), strict: q.get('strict') === '1' }), scoped: true });
+      return json(res, 200, { recordings: await recentRecordings() });
+    }
+    if (req.method === 'GET' && p === '/api/calls/ledger') return json(res, 200, { sessions: Object.fromEntries([...callLedger.entries()]) });
     const rm = p.match(/^\/api\/recording\/([a-f0-9-]{8,})$/i);
     if (req.method === 'GET' && rm) {
       await recentRecordings();
@@ -317,6 +377,13 @@ const uiWss = new WebSocketServer({ noServer: true });
 // Every open console, so an edit to a signed-in user's long-term memory on one
 // device can be pushed live to their OTHER devices (same email, different session).
 const uiClients = new Set(); // { sessionId, email, send }
+// 15 Nov: Aria changed Talk Settings (talk_settings tool) — refresh the drawer on every open console.
+subscribe((ev) => {
+  if (ev.type !== 'settings.changed') return;
+  if (ev.what === 'bots') for (const c of uiClients) c.send({ kind: 'bots', bots: publicBots() });
+  else if (ev.what === 'mcp') { for (const c of uiClients) c.send({ kind: 'mcp', servers: publicServers() }); warmMcp(); }
+  else if (ev.what === 'test_dial') for (const c of uiClients) c.send({ kind: 'test_dial', ...getTestTarget(c.sessionId) });
+});
 onProfileChange(({ email, text, remember, sourceSession }) => {
   for (const c of uiClients) {
     if (c.email && c.email === email && c.sessionId !== sourceSession) c.send({ kind: 'context_sync', text, remember });
@@ -332,8 +399,15 @@ uiWss.on('connection', (ws, req) => {
   // session `app-xxxx`) doesn't light up every other open console. A global event (no sessionId) is
   // shown to all; background-browse/worker sub-sessions (`<session>#w-1`) count as this session's.
   const forSession = (ev) => !ev.sessionId || ev.sessionId === sessionId || String(ev.sessionId).startsWith(`${sessionId}#`);
+  // 14 Nov pm: WATCH — the console asks to see one task session's browser (`{type:'watch', session:'task-…'}`)
+  // while that thread is open in the Async drawer. Only browser.* events of the watched session are
+  // forwarded, tagged `watched`, so the pane can mirror a background task without touching main state.
+  // Before this a task agent said "it's on your Personal Voice Browser" and the pane stayed empty.
+  let watched = '';
+  const WATCHED_TYPES = new Set(['browser.frame', 'browser.page', 'browser.tabs']);
+  const forWatched = (ev) => watched && WATCHED_TYPES.has(ev.type) && (ev.sessionId === watched || String(ev.sessionId || '').startsWith(`${watched}#`));
   for (const ev of recentEvents()) if (forSession(ev)) send({ kind: 'event', event: ev });
-  const unsub = subscribe((ev) => { if (forSession(ev)) send({ kind: 'event', event: ev }); });
+  const unsub = subscribe((ev) => { if (forSession(ev)) send({ kind: 'event', event: ev }); else if (forWatched(ev)) send({ kind: 'event', event: { ...ev, watched: true } }); });
   // test_dial rides on hello: the SERVER is the source of truth for the redirect (13 Nov — consoles
   // used to replay their own saved switch on every connect, so a fresh browser profile DISARMED it).
   send({ kind: 'hello', sessionId, harness_url: harnessUrl('navigator'), conductor_url: conductorUrl(), team: roster(), bots: listBots(), mcp: listServers(), test_dial: getTestTarget(sessionId) });
@@ -347,6 +421,8 @@ uiWss.on('connection', (ws, req) => {
   const frameTick = setInterval(() => {
     const tab = peekSession(sessionId)?.tab;
     if (tab && tab.url && tab.url !== 'about:blank') tab.frame().catch(() => {});
+    const wt = watched ? peekSession(watched)?.tab : null;
+    if (wt && wt.url && wt.url !== 'about:blank') wt.frame().catch(() => {});
   }, 2500);
   ws.on('message', async (raw) => {
     let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
@@ -364,6 +440,12 @@ uiWss.on('connection', (ws, req) => {
         send({ kind: 'action', id: msg.id, result: summary });
       }
       else if (msg.type === 'frame') { const nav = peekSession(msg.session || sessionId); await nav?.tab?.frame(); }
+      else if (msg.type === 'watch') {
+        watched = /^task-[a-z0-9]+$/i.test(String(msg.session || '')) ? String(msg.session) : '';
+        const nav = watched ? peekSession(watched) : null;
+        send({ kind: 'watch', session: watched, live: !!(nav?.tab?.url && nav.tab.url !== 'about:blank'), url: nav?.tab?.url || '', title: nav?.tab?.last?.title || '' });
+        if (nav?.tab) { send({ kind: 'event', event: { type: 'browser.tabs', sessionId: watched, watched: true, ts: new Date().toISOString(), tabs: getBrowser().tabList(watched) } }); nav.tab.frame().catch(() => {}); }
+      }
       // Tab strip: the user opens/switches/closes tabs in the SAME group the agent browses in.
       else if (msg.type === 'tab' && msg.action) {
         const id = msg.session || sessionId;

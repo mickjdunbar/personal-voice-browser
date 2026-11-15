@@ -10,7 +10,7 @@ import { config } from '../config.js';
 
 // Actions handled by a dedicated tool rather than the browser — kept as named patterns so the
 // classifier AND the spoken filler can tell a phone request from a chatbot ask from a web task.
-const PHONE_RX = /\b(phone|dial|telephone)\b|\b(call|ring)\s+(my|the|his|her|their|him|them|mum|mom|dad|wife|husband|partner|son|daughter|brother|sister|friend|mate|boss|doctor|dentist|neighbou?r|someone|number|\+?\d)\b|\b(call|ring|phone|dial)\s+(back\s+)?(?:up\s+)?\+?\d/i;
+const PHONE_RX = /\b(phone(?!\s+numbers?\b)|dial|telephone)\b|\b(call|ring)\s+(my|the|his|her|their|him|them|mum|mom|dad|wife|husband|partner|son|daughter|brother|sister|friend|mate|boss|doctor|dentist|neighbou?r|someone|number|\+?\d)\b|\b(call|ring|phone|dial)\s+(back\s+)?(?:up\s+)?\+?\d/i;
 // "call Nic", "ring Dave" — a verb of calling followed by a capitalised proper name. Case-SENSITIVE
 // (no /i) so it catches names without misfiring on idioms like "call it a day" or a capitalised
 // sentence-start "Call back any time". STT (Deepgram) capitalises names, so this holds for voice too.
@@ -86,8 +86,12 @@ export const FILLERS = {
 };
 export const DEEP_FILLERS = FILLERS.browse; // back-compat alias
 /** Which kind of deep-lane action does this request imply? Phone/chatbot win over a plain web task. */
+// 14 Nov pm: a request that RULES OUT calling ("no phone calls", "don't ring them", "without calling")
+// used to pick the phone filler ("I'll ring them for you") for a plain browse. Negated mentions are
+// blanked before the phone test; "phone number" (something to look up) never counts as a call either.
+const NEGATED_PHONE_RX = /\b(no|not|don'?t|do not|never|without|avoid|skip|rather than|instead of|no need to|needn'?t)\b[^.;!?]{0,24}?\b(phone|phoning|phones|call|calls|calling|ring|ringing|rings|dial|dialing|dialling|telephone)\b(\s+(calls?|anyone|anybody|them|him|her|it|the\s+\w+))?/gi;
 export function intentOf(text = '') {
-  const t = String(text);
+  const t = String(text).replace(NEGATED_PHONE_RX, ' ');
   if (PHONE_RX.test(t) || PHONE_NAME_RX.test(t)) return 'phone';
   if (CHATBOT_RX.test(t)) return 'chatbot';
   if (BROWSE_PATTERNS.some((re) => re.test(t))) return 'browse';

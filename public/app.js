@@ -6,6 +6,9 @@
 //    knowledge, sentiment) and the browser frames. Ambient + typing sound covers the quiet.
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// Escape, then turn bare http(s) URLs into clickable links (new tab). Trailing punctuation stays outside the link.
+const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<>"']+?(?=[.,;:!?)\]]*(?:\s|$|&lt;|&quot;))/g,
+  (u) => `<a href="${u}" target="_blank" rel="noopener" class="autolink">${u}</a>`);
 // 11 Nov: the Android Capacitor shell is RETIRED — SMS/WhatsApp are the phone surface now and the
 // web console (this page) is the only UI. All IS_APP / body.app branches are gone with it.
 document.title = 'Personal Voice Browser';
@@ -28,6 +31,11 @@ const pinLog = [];   // {at,label,address,lat,lon,url,share_link} — pins dropp
 // 13 Nov: ids of background tasks STARTED during the current call (or this console session before
 // any call) — the recap shows only these, not everything touched in the last 12 h.
 const callTasks = new Set();
+// 14 Nov pm: the window of the call the recap is about — set at call.start, frozen at call.end (so a
+// new call starting before the 25 s auto-recap fires cannot leak into it). Transcript bubbles,
+// logs, screens and tasks are all cut to this window; recordings are fetched for this call sid.
+let callWin = null, lastCallWin = null;
+const inWin = (at, w) => { if (!w) return true; const t = typeof at === 'number' ? at : new Date(at || 0).getTime(); return t >= w.startedAt - 2000 && (!w.endedAt || t <= w.endedAt + 2000); };
 function updateCallCost() {
   const el = $('call-cost'); if (!el || el.hidden) return;
   el.textContent = `call cost ${money(Math.max(0, costTotal - callCostBase) + s2sCostCall)}`;
@@ -303,9 +311,10 @@ const tasksUi = (() => {
     const d = document.createElement('div');
     d.className = `tmsg ${m.role === 'owner' ? 'owner' : 'aria'}`;
     // Attached images (screenshots / sketches): shown inline, click opens full size in a new tab.
-    const media = (Array.isArray(m.media) ? m.media : []).map((md) =>
-      `<a class="tmsg-media" href="${esc(md.url)}" target="_blank" rel="noopener"><img class="tmsg-img" src="${esc(md.url)}" alt="${esc(md.kind || 'image')}" loading="lazy"></a>`).join('');
-    d.innerHTML = `<span class="tmsg-text">${esc(m.text)}</span>${media}<span class="tmsg-meta">${m.role === 'owner' ? 'you' : 'Aria'}${m.async ? ' · update' : ''} · ${esc(when(m.at))}</span>`;
+    const media = (Array.isArray(m.media) ? m.media : []).map((md) => md.kind === 'document'
+      ? `<a class="tmsg-file" href="${esc(md.url)}" target="_blank" rel="noopener" title="${esc(md.name || 'document')}">📄 <b>${esc(md.name || 'document')}</b>${md.size ? `<small>${fmtBytes(md.size)}</small>` : ''}</a>`
+      : `<a class="tmsg-media" href="${esc(md.url)}" target="_blank" rel="noopener"><img class="tmsg-img" src="${esc(md.url)}" alt="${esc(md.name || md.kind || 'image')}" loading="lazy"></a>`).join('');
+    d.innerHTML = `<span class="tmsg-text">${linkify(m.text)}</span>${media}<span class="tmsg-meta">${m.role === 'owner' ? 'you' : 'Aria'}${m.async ? ' · update' : ''} · ${esc(when(m.at))}</span>`;
     return d;
   }
   function typingRow(on) {
@@ -326,6 +335,7 @@ const tasksUi = (() => {
     current = id;
     rendered = new Set();
     thread.innerHTML = '';
+    setWatch(`task-${id}`, (TASKS.find((t) => t.id === id) || {}).title || '');
     try {
       const t = await (await fetch(`/api/tasks/${encodeURIComponent(id)}`)).json();
       if (t.error) throw new Error(t.error);
@@ -341,21 +351,64 @@ const tasksUi = (() => {
   function startNew() {
     current = null;
     rendered = new Set();
+    setWatch('');
     head.hidden = true;
     thread.innerHTML = '<div class="task-empty hint">A fresh task — tell Aria what to get done, then check back whenever. She works in the background and every update lands here.</div>';
     renderList();
     input.focus({ preventScroll: true });
   }
-  async function sendMsg(text) {
+  // --- attachments (14 Nov): paste, drop or pick images + documents; sent base64 in the message body.
+  let pendingFiles = [];
+  const attachList = $('task-attach-list'), fileInput = $('task-file'), sendBtn = $('task-send');
+  const MAX_FILES = 8, MAX_BYTES = 15 * 1024 * 1024;
+  const OK_DOC = /\.(pdf|txt|md|csv|json|docx)$/i;
+  function fmtBytes(n) { return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`; }
+  function addFiles(files) {
+    for (const f of Array.from(files || [])) {
+      if (pendingFiles.length >= MAX_FILES) { toasts.show({ icon: '⚠️', title: `Up to ${MAX_FILES} files per message`, ttl: 4000 }); break; }
+      const isImg = /^image\/(png|jpe?g|gif|webp)$/.test(f.type);
+      if (!isImg && !OK_DOC.test(f.name || '')) { toasts.show({ icon: '⚠️', title: 'Not a supported file', body: `${f.name || f.type}: images (png/jpg/gif/webp) or documents (pdf/txt/md/csv/json/docx)`, ttl: 6000 }); continue; }
+      if (f.size > MAX_BYTES) { toasts.show({ icon: '⚠️', title: 'Too big', body: `${f.name} is over 15 MB`, ttl: 5000 }); continue; }
+      const name = f.name && f.name !== 'image.png' ? f.name : `pasted-${new Date().toISOString().slice(11, 19).replace(/:/g, '')}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`;
+      pendingFiles.push({ file: f, name, type: f.type, kind: isImg ? 'image' : 'document', preview: isImg ? URL.createObjectURL(f) : null });
+    }
+    paintAttach();
+  }
+  function paintAttach() {
+    if (!attachList) return;
+    attachList.hidden = !pendingFiles.length;
+    attachList.innerHTML = pendingFiles.map((a, i) => `<span class="task-chip">${a.preview ? `<img src="${a.preview}" alt="">` : '<i>📄</i>'}<b title="${esc(a.name)}">${esc(a.name)}</b><small>${fmtBytes(a.file.size)}</small><button type="button" data-i="${i}" title="Remove">×</button></span>`).join('');
+  }
+  function clearAttach() { for (const a of pendingFiles) if (a.preview) URL.revokeObjectURL(a.preview); pendingFiles = []; paintAttach(); }
+  const toB64 = (f) => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => bad(r.error || new Error('read failed')); r.readAsDataURL(f); });
+  attachList?.addEventListener('click', (ev) => { const b = ev.target.closest('button[data-i]'); if (!b) return; const [a] = pendingFiles.splice(Number(b.dataset.i), 1); if (a?.preview) URL.revokeObjectURL(a.preview); paintAttach(); input.focus({ preventScroll: true }); });
+  $('task-attach')?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+  input.addEventListener('paste', (ev) => { const files = Array.from(ev.clipboardData?.files || []); if (!files.length) return; ev.preventDefault(); addFiles(files); });
+  el.addEventListener('dragover', (ev) => { if (Array.from(ev.dataTransfer?.types || []).includes('Files')) { ev.preventDefault(); el.classList.add('dropping'); } });
+  el.addEventListener('dragleave', (ev) => { if (!el.contains(ev.relatedTarget)) el.classList.remove('dropping'); });
+  el.addEventListener('drop', (ev) => { el.classList.remove('dropping'); const files = ev.dataTransfer?.files; if (!files?.length) return; ev.preventDefault(); addFiles(files); input.focus({ preventScroll: true }); });
+
+  async function sendMsg(text, files = []) {
+    const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => { const j = await r.json().catch(() => ({})); if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`); return j; });
+    if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = files.length ? 'Uploading…' : 'Sending…'; }
     try {
+      const attachments = await Promise.all(files.map(async (a) => ({ name: a.name, type: a.type, data: await toB64(a.file) })));
+      const body = attachments.length ? { text, attachments } : { text };
       if (current) {
-        await fetch(`/api/tasks/${encodeURIComponent(current)}/message`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+        await post(`/api/tasks/${encodeURIComponent(current)}/message`, body);
         read[current] = Date.now(); saveRead();
       } else {
-        const r = await (await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) })).json();
+        const r = await post('/api/tasks', body);
         if (r.task) { await openTask(r.task.id); }
       }
-    } catch (e2) { appendMsg({ role: 'aria', text: `couldn't send that: ${e2.message}`, at: new Date().toISOString() }); }
+      for (const a of files) if (a.preview) URL.revokeObjectURL(a.preview);
+    } catch (e2) {
+      appendMsg({ role: 'aria', text: `couldn't send that: ${e2.message}`, at: new Date().toISOString() });
+      // Give the files back so a retry is one click, not a re-paste.
+      if (files.length && !pendingFiles.length) { pendingFiles = files; paintAttach(); }
+      if (text && !input.value) input.value = text;
+    } finally { if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send'; } }
   }
   async function loadTasks() {
     try { TASKS = (await (await fetch('/api/tasks')).json()).tasks || []; renderList(); paintBadge(); paintHead(); } catch { /* server away — the feed will catch us up */ }
@@ -387,13 +440,13 @@ const tasksUi = (() => {
   }
 
   const open = () => { el.classList.add('open'); back.classList.add('open'); toggle?.classList.add('open'); el.setAttribute('aria-hidden', 'false'); toggle?.setAttribute('aria-expanded', 'true'); loadTasks().then(() => { if (current) { read[current] = Date.now(); saveRead(); paintBadge(); renderList(); } }); setTimeout(() => input.focus({ preventScroll: true }), 180); };
-  const close = () => { el.classList.remove('open'); back.classList.remove('open'); toggle?.classList.remove('open'); el.setAttribute('aria-hidden', 'true'); toggle?.setAttribute('aria-expanded', 'false'); };
+  const close = () => { el.classList.remove('open'); back.classList.remove('open'); toggle?.classList.remove('open'); el.setAttribute('aria-hidden', 'true'); toggle?.setAttribute('aria-expanded', 'false'); setWatch(''); };
   toggle?.addEventListener('click', open);
   $('tasks-close').addEventListener('click', close);
   back.addEventListener('click', close);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
   $('task-new').addEventListener('click', startNew);
-  $('task-form').addEventListener('submit', (e) => { e.preventDefault(); const t = input.value.trim(); if (!t) return; input.value = ''; sendMsg(t); });
+  $('task-form').addEventListener('submit', (e) => { e.preventDefault(); const t = input.value.trim(); if (!t && !pendingFiles.length) return; const files = pendingFiles; pendingFiles = []; paintAttach(); input.value = ''; sendMsg(t, files); });
   $('task-done').addEventListener('click', () => { if (!current) return; const t = TASKS.find((x) => x.id === current); fetch(`/api/tasks/${encodeURIComponent(current)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: t?.status === 'done' ? 'waiting' : 'done' }) }); });
   $('task-delete').addEventListener('click', () => { if (!current) return; if (!confirm('Delete this task and its whole thread?')) return; deleteTasks([current]); });
   $('task-select-all')?.addEventListener('change', (ev) => { picked = ev.target.checked ? new Set(TASKS.map((t) => t.id)) : new Set(); renderList(); });
@@ -1066,6 +1119,7 @@ function connectFeed() {
     else if (msg.kind === 'hello') { if (msg.team) { TEAM = msg.team; renderTeam(null); } if (msg.bots) { BOTS = msg.bots; renderBots(); } testCalls.adopt(msg.test_dial); log('feed session', msg.sessionId); }
     else if (msg.kind === 'bots') { BOTS_FULL = msg.bots || []; BOTS = BOTS_FULL; renderBots(); botsAdmin.render(); }
     else if (msg.kind === 'mcp') { MCP_SERVERS = msg.servers || []; mcpAdmin.render(); }
+    else if (msg.kind === 'test_dial') { testCalls.adopt(msg); } // 15 Nov: Aria flipped it via talk_settings
     else if (msg.kind === 'mcp_probe') { mcpAdmin.flash(msg.ok ? `✓ ${(msg.tools || []).length} tool(s)${(msg.tools || []).length ? ': ' + msg.tools.slice(0, 6).join(', ') : ''}` : `✗ ${msg.error || 'could not reach server'}`, msg.ok); }
     // Signed in: the server returns the SHARED long-term memory for this email.
     else if (msg.kind === 'identity') { identity.confirmed(msg.email); if (msg.email) ctx.setFromServer(msg.text, msg.remember); }
@@ -1074,12 +1128,9 @@ function connectFeed() {
   };
 }
 let BOTS = [], BOTS_FULL = [], PROVIDERS = [];
-function renderBots() {
-  const el = $('bots-note');
-  if (!BOTS.length) { el.hidden = true; return; }
-  el.hidden = false;
-  el.innerHTML = 'Chatbots on this call: ' + BOTS.map((b) => `<b>${esc(b.name)}</b>`).join(', ') + ` — try “ask ${esc(BOTS[0].name)} about …”, or carry a web answer into one.`;
-}
+// 15 Nov: the "Chatbots on this call: …" hint under the composer is gone (Mick) — ask Aria to list
+// chatbots / MCP servers instead (talk_settings action=list). Kept as a no-op so callers stay simple.
+function renderBots() {}
 async function loadTeam() { try { const j = await (await fetch('/api/team')).json(); TEAM = j.agents; renderTeam(null); } catch {} }
 async function loadBots() {
   try {
@@ -1505,21 +1556,28 @@ function s2sFloor(role, agent, chunk) {
   }
 }
 function laneClass(ev) { return (ev.agent && ev.agent.color) || ev.lane || (ev.type && ev.type.startsWith('s2s.') ? 's2s' : ''); }
-function addMsg(role, text, who, meta, colorKey) {
+/** Server-stamped "spoken at" (ms) moved onto this browser's clock via the event's own ts. */
+const atLocal = (e) => (e && e.at && e.ts ? Date.now() - Math.max(0, Date.parse(e.ts) - e.at) : 0);
+function addMsg(role, text, who, meta, colorKey, at = 0) {
   if (partialEl && role === 'caller') { partialEl.remove(); partialEl = null; }
   if (role !== 'caller') textDrawer?.bump(); // closed Text drawer shows an unread count
   const d = document.createElement('div'); d.className = `msg ${role}`;
   if (colorKey) d.style.setProperty('--c', colorVar(colorKey));
   const ava = /^agent\b/.test(role) ? `<span class="msg-ava" aria-hidden="true">${HUEY_SVG}</span>` : '';
-  d.innerHTML = `${ava}${who ? `<span class="who">${esc(who)}</span>` : ''}<span class="bubble-text">${esc(text)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}`;
+  d.dataset.ts = String(at || Date.now()); // when it was SAID (so a recap can cut the transcript to one call's window)
+  d.innerHTML = `${ava}${who ? `<span class="who">${esc(who)}</span>` : ''}<span class="bubble-text">${linkify(text)}</span>${meta ? `<span class="meta">${esc(meta)}</span>` : ''}`;
   // A URL in an agent reply (e.g. an xApp map link, SOP-011) becomes a tappable card + QR —
   // bubbles are textContent-escaped, so this is the only way a link is ever clickable here.
   if (/^agent\b/.test(role)) {
     const urls = String(text || '').match(/https?:\/\/[^\s"'<>)\]]+/g) || [];
     if (urls.length) d.appendChild(buildLinkCards(urls));
   }
-  // Newest on TOP (just under the Send box): insert at the front and keep the view pinned there.
-  transcript.insertBefore(d, transcript.firstChild); transcript.scrollTop = 0; return d;
+  // Newest on TOP (just under the Send box). 15 Nov: a line that carries `at` (a voice transcript —
+  // the caller's text lands after Aria has started answering) is slotted where it was SPOKEN,
+  // not where it arrived, so the thread reads in the order the conversation actually happened.
+  let before = transcript.firstChild;
+  if (at) { before = null; for (const c of transcript.children) if ((Number(c.dataset.ts) || 0) <= at) { before = c; break; } }
+  transcript.insertBefore(d, before); transcript.scrollTop = 0; return d;
 }
 
 /** Tappable cards (and a QR for the first link) for URLs an agent put in its reply. */
@@ -1552,9 +1610,41 @@ function ev(cls, html, ts) {
 }
 const sentChip = (s) => s ? `<span class="chip-sent ${s.label}">${s.label} ${s.score > 0 ? '+' : ''}${s.score}</span>` : '';
 
+// 14 Nov pm: WATCHING a task — while a thread is open in the Async drawer and no call is live on
+// main, the pane mirrors that task's browser (the server forwards its browser.* events tagged
+// `watched`). A main-session frame always wins: the moment the caller's own browser paints, the
+// watched view yields until the next watched frame after main goes quiet again.
+let watching = null;         // { session, title } the task being watched, or null
+let mainFrameAt = 0;         // last time a MAIN frame with a real page painted
+function setWatch(session, title) {
+  const next = session || '';
+  if ((watching?.session || '') === next) return;
+  watching = next ? { session: next, title: title || '' } : null;
+  send({ type: 'watch', session: next });
+  const b = $('frame-badge');
+  if (!watching) { if (b.dataset.watched) { delete b.dataset.watched; b.textContent = ''; b.classList.remove('on'); if (Date.now() - mainFrameAt > 10000) { document.body.classList.remove('browser-live'); $('frame').removeAttribute('src'); $('frame-meta').textContent = ''; } } }
+}
+function renderWatched(e) {
+  if (!watching || e.sessionId !== watching.session && !String(e.sessionId || '').startsWith(watching.session + '#')) return;
+  if (inCall || Date.now() - mainFrameAt < 10000) return; // the caller's own browser has the pane
+  const b = $('frame-badge');
+  if (e.type === 'browser.frame') {
+    if (!(e.url && /^https?:/i.test(e.url))) return;
+    revealBrowser(true);
+    $('frame').src = `data:image/jpeg;base64,${e.jpeg}`;
+    $('frame-meta').textContent = `watching task · ${Math.round(e.bytes / 1024)} KB · ${new Date(e.ts).toLocaleTimeString()}`;
+    updateRail(e.scroll);
+    $('url').value = e.url; b.textContent = `👁 ${watching.title ? watching.title + ' · ' : ''}${e.title || e.url}`; b.classList.add('on'); b.dataset.watched = '1';
+  } else if (e.type === 'browser.page') {
+    const real = e.url && !/^about:/i.test(e.url);
+    if (real) { revealBrowser(true); $('url').value = e.url; if (e.title) { b.textContent = `👁 ${watching.title ? watching.title + ' · ' : ''}${e.title}`; b.classList.add('on'); b.dataset.watched = '1'; } }
+  }
+}
 function render(e) {
+  if (e.watched) return renderWatched(e);
   if (e.sessionId && e.sessionId !== SESSION) return;
   if (e.type === 'browser.frame') {
+    if (e.url && /^https?:/i.test(e.url)) { mainFrameAt = Date.now(); if ($('frame-badge').dataset.watched) { delete $('frame-badge').dataset.watched; } }
     if (e.url && /^https?:/i.test(e.url)) revealBrowser(true); // ignore the boot about:blank frame
     $('frame').src = `data:image/jpeg;base64,${e.jpeg}`;
     $('frame-meta').textContent = `${Math.round(e.bytes / 1024)} KB · ${new Date(e.ts).toLocaleTimeString()}`;
@@ -1572,11 +1662,12 @@ function render(e) {
       if (!already) {
         callCostBase = costTotal; s2sCostCall = 0; // this call's spend starts from here
         callTasks.clear(); // the recap's "Background tasks" = tasks this call starts
+        callWin = { callSid: e.callSid || '', from: e.from || '', to: e.to || '', startedAt: Date.now(), endedAt: 0, tasks: callTasks };
         const cc = $('call-cost'); if (cc) { cc.hidden = false; cc.classList.add('live'); cc.textContent = 'call cost $0.0000'; }
       }
       ev('ok', `<b>call</b> ${esc(e.direction)} from ${esc(e.from)} · mode ${esc(e.mode)}`, e.ts); break;
     }
-    case 'call.end': inCall = false; setCallBtn(false); $('mute').disabled = true; clearTimeout(s2sFloorTimer); speakEnd = 0; setOrbBusy(false); $('call-cost')?.classList.remove('live'); clearWorkers(); $('frame-activity').classList.remove('on'); document.querySelector('.frame-wrap')?.classList.remove('busy'); sound.work(false); setSpeaker(null); ev('', `<b>call ended</b> ${esc(e.reason)} · ${e.swaps} lane swaps · ${ms(e.duration_ms)}`, e.ts); setTimeout(loadRecordings, 2500); scheduleAutoRecap(); break;
+    case 'call.end': if (callWin) { callWin.endedAt = Date.now(); lastCallWin = { ...callWin, tasks: new Set(callTasks) }; } inCall = false; setCallBtn(false); $('mute').disabled = true; clearTimeout(s2sFloorTimer); speakEnd = 0; setOrbBusy(false); $('call-cost')?.classList.remove('live'); clearWorkers(); $('frame-activity').classList.remove('on'); document.querySelector('.frame-wrap')?.classList.remove('busy'); sound.work(false); setSpeaker(null); ev('', `<b>call ended</b> ${esc(e.reason)} · ${e.swaps} lane swaps · ${ms(e.duration_ms)}`, e.ts); setTimeout(loadRecordings, 2500); scheduleAutoRecap(); break;
     case 'speaker': setSpeaker(e.agent, e.lane); ev(e.agent?.color || e.lane, `<b>${esc(e.agent?.name || '?')}</b> has the floor <span class="t">${esc(e.agent?.title || '')}${e.worker ? ' · ' + esc(e.worker.name) + ' working on it' : ''}${e.handing_off ? ' · handed the task' : ''}</span>`, e.ts); break;
     case 'lane.swap': ev(e.lane === 's2s' ? 's2s' : 'deep', `<b>lane → ${esc(e.lane)}</b> ${esc(e.why)} <code>${esc(e.model)}</code>`, e.ts); break;
     case 'turn.lane': $('st-lane').textContent = e.lane; setOrbBusy(e.lane === 'deep'); if (e.lane === 'deep') sound.work(true); break;
@@ -1636,6 +1727,14 @@ function render(e) {
       if (e.error) { addMsg('phonein err', e.error, '📞 ' + (e.name || 'call') + ' — no answer', ''); ev('bad', `<b>📞 ${esc(e.name || 'call')} —</b> ${esc(e.error)}`, e.ts); phoneLog.push({ at: Date.now(), kind: 'error', name: e.name || '', text: e.error }); }
       else { addMsg('phonein', e.answer, '📞 ' + (e.name || 'they') + ' said', e.relayed ? 'heard live on the call' : ''); ev('ok', `<b>📞 ${esc(e.name || 'they')} said</b> “${esc((e.answer || '').slice(0, 70))}”${e.relayed ? ' · heard live' : ''}`, e.ts); }
       break;
+    case 'phone.answered_by': {
+      const icon = { human: '🙂', agent: '🤖', ivr: '🔢', voicemail: '📼' }[e.kind] || '❓';
+      ev(e.kind === 'human' ? 'ok' : 'shopper', `<b>${icon} ${e.direction === 'inbound' ? 'caller is' : 'answered by'} ${esc(e.kind)}</b> ${Math.round((e.confidence || 0) * 100)} %${e.changed ? ' (revised)' : ''} — ${esc((e.cues || []).slice(-2).join('; '))}`, e.ts);
+      toasts.show({ icon, title: `${e.direction === 'inbound' ? (e.changed ? 'Caller is now' : 'Caller is') : e.changed ? 'Now talking to' : 'Answered by'} ${e.kind === 'ivr' ? 'a phone menu' : e.kind === 'agent' ? 'an AI agent' : e.kind === 'voicemail' ? 'voicemail' : 'a person'}`, body: (e.cues || []).slice(-1)[0] || '', ttl: 5000 });
+      break;
+    }
+    case 'phone.amd': ev('', `<b>📞 AMD</b> ${esc(e.type)}`, e.ts); break;
+    case 'phone.probe': ev('shopper', `<b>❓ probe</b> person or assistant? (tie after ${e.turns} turns)`, e.ts); break;
     case 'phone.ask': ev('shopper', `<b>📞 ask-call</b> → ${esc(e.name || e.to || '')}: “${esc((e.question || '').slice(0, 60))}”`, e.ts); break;
     case 'phone.answer': ev(e.answer ? 'ok' : '', `<b>📞 answer</b> “${esc((e.answer || '(none)').slice(0, 70))}”`, e.ts); phoneLog.push({ at: Date.now(), kind: 'answer', callSid: e.callSid || '', name: e.name || '', text: e.answer || '', transcript: Array.isArray(e.transcript) ? e.transcript : [] }); break;
     // 13 Nov: the whole outbound leg once it ends (booking + relayed follow-ups) replaces the
@@ -1680,10 +1779,15 @@ function render(e) {
     case 'mcp.call': ev('concierge', `<b>MCP →</b> ${esc(e.server || '')}${e.tool ? ' · ' + esc(e.tool) : ' · list tools'}`, e.ts); break;
     case 'mcp.result': ev(e.error ? 'bad' : 'ok', `<b>MCP ←</b> ${esc(e.server || '')}${e.tool ? ' · ' + esc(e.tool) : ''} ${e.error ? 'error: ' + esc(e.error) : (e.count != null ? e.count + ' tools' : 'ok')} ${ms(e.ms)}`, e.ts); break;
     case 's2s.transcript': {
-      const top = transcript.firstElementChild; // newest line is on top now
       const role = e.role === 'user' ? 'caller' : 'agent';
-      if (top && top.dataset.s2s === role) { (top.querySelector('.bubble-text') || top).textContent = e.text; }
-      else { const d = addMsg(role, e.text, role === 'agent' ? (e.agent?.name || 'Host') : '', '', e.agent?.color || 'host'); d.dataset.s2s = role; }
+      // 15 Nov: one bubble per spoken LINE (the server numbers them per call) placed by when it was
+      // spoken. Before this the newest same-role bubble was updated in place, which glued Aria's
+      // next answer onto her previous one whenever the caller's transcript arrived late.
+      const key = e.line != null ? `${e.callSid || ''}:${e.line}` : '';
+      let d = key ? transcript.querySelector(`.msg[data-line="${CSS.escape(key)}"]`) : null;
+      if (!d && !key) { const top = transcript.firstElementChild; if (top && top.dataset.s2s === role && !top.dataset.line) d = top; }
+      if (d) (d.querySelector('.bubble-text') || d).textContent = e.text;
+      else { d = addMsg(role, e.text, role === 'agent' ? (e.agent?.name || 'Host') : '', '', e.agent?.color || 'host', atLocal(e)); d.dataset.s2s = role; if (key) d.dataset.line = key; }
       s2sFloor(e.role, e.agent, e.delta || e.text); // drive the orb from the voice stream (queue model)
       break;
     }
@@ -1743,6 +1847,15 @@ function render(e) {
       break;
     }
     case 'agent.confirmation': ev('bad', `<b>confirmation required</b> “${esc(e.label)}” on ${esc(e.host)}`, e.ts); break;
+    // 15 Nov: Aria changed (or was refused) a Talk Setting via the talk_settings tool.
+    case 'settings.changed': {
+      const what = e.what === 'bots' ? 'chatbot' : e.what === 'mcp' ? 'MCP server' : 'test-dial';
+      const body = e.what === 'test_dial' ? (e.enabled ? `ON → ${e.number || ''}` : 'OFF') : `${String(e.action || '').replace(/_.*/, '')} ${e.name || e.id || ''}`.trim();
+      ev('ok', `<b>⚙ Talk Settings</b> ${esc(what)}: ${esc(body)}`, e.ts);
+      toasts.show({ icon: '⚙️', title: `Talk Settings · ${what}`, body: `Aria: ${body}`, ttl: 8000 });
+      break;
+    }
+    case 'settings.refused': ev('bad', `<b>⚙ Talk Settings refused</b> ${esc(e.action || '')} — ${esc(e.why || '')}`, e.ts); break;
     case 'agent.confirmed': ev('ok', `<b>confirmed</b> “${esc(e.label)}”`, e.ts); break;
     case 'agent.declined': ev('', `<b>declined</b> “${esc(e.label)}”`, e.ts); break;
     case 'agent.said': {
@@ -1757,7 +1870,10 @@ function render(e) {
       }
       if (e.lane === 'deep') sound.work(false);
       setOrbBusy(false); // the turn's final reply is out — the spinner stops (speech hold keeps "speaking" alive)
-      addMsg('agent', e.text, e.agent?.name, `${e.worker ? 'via ' + e.worker.name + ' · ' : ''}${e.lane || ''} · TTFT ${ms(e.ttft_ms)} · ${ms(e.total_ms)}${typeof e.cost === 'number' ? ' · ' + money(e.cost) : ''}${e.hangup ? ' · hangup' : ''}${e.handback ? ' · hand back' : ''}`, e.agent?.color);
+      // 15 Nov: on an S2S call the team's written answer is handed to Aria, who says it her own way
+      // (her words arrive as s2s.transcript) — label it as the team's, never as something Aria said.
+      if (e.team) addMsg('agent relay-team', e.text, 'the team → Aria', `👥 found for Aria to say · ${e.worker ? 'via ' + e.worker.name + ' · ' : ''}${e.lane || ''} · ${ms(e.total_ms)}${typeof e.cost === 'number' ? ' · ' + money(e.cost) : ''}`, 'host');
+      else addMsg('agent', e.text, e.agent?.name, `${e.worker ? 'via ' + e.worker.name + ' · ' : ''}${e.lane || ''} · TTFT ${ms(e.ttft_ms)} · ${ms(e.total_ms)}${typeof e.cost === 'number' ? ' · ' + money(e.cost) : ''}${e.hangup ? ' · hangup' : ''}${e.handback ? ' · hand back' : ''}`, e.agent?.color);
       $('st-total') && ($('st-total').textContent = ms(e.total_ms));
       if (typeof e.cost === 'number') $('st-cost').textContent = money(e.cost);
       if (typeof e.cost_total === 'number') $('st-cost-total').textContent = money(e.cost_total);
@@ -1828,13 +1944,14 @@ drawSentiment();
 // ---------- call recordings + shareable recap ------------------------------------
 async function loadRecordings() {
   try {
-    const recs = (await (await fetch('/api/recordings')).json()).recordings || [];
+    const w = lastCallWin || callWin;
+    const recs = (await (await fetch(w ? `/api/recordings?session=${encodeURIComponent(SESSION)}&call=${encodeURIComponent(w.callSid)}&from=${w.startedAt}&to=${w.endedAt || ''}` : '/api/recordings')).json()).recordings || [];
     const box = $('recordings'), card = $('recordings-card');
     if (!recs.length) { card.hidden = true; return; }
     card.hidden = false;
     box.innerHTML = recs.filter((r) => !r.mirror_of).slice(0, 8).map((r) => {
       const when = r.at ? new Date(r.at).toLocaleTimeString([], { hour12: false }) : '';
-      const label = r.kind === 'outbound' ? `Outbound → ${esc(r.to || '')}` : 'Inbound call';
+      const label = r.role === 'owner' ? `Your call${/^app-/.test(r.to || '') ? ' (browser)' : ''}` : r.kind === 'outbound' ? `Outbound → ${esc(r.to || '')}` : 'Inbound call';
       return `<div class="rec"><div class="rh"><b>${label}</b><span class="rtag ${r.kind}">${esc(r.kind)}</span><span class="rmeta">${r.duration || 0}s · ${esc(r.termination || '')} · ${when}</span></div><audio controls preload="none" src="/api/recording/${esc(r.call_sid)}"></audio></div>`;
     }).join('');
   } catch { /* ignore */ }
@@ -1861,9 +1978,9 @@ function renderBotLog() {
     '</div>').join('');
 }
 
-function transcriptData() {
+function transcriptData(win = null) {
   // The live view shows newest-first; a shared/exported transcript must read oldest-first.
-  return [...transcript.querySelectorAll('.msg')].reverse().map((m) => {
+  return [...transcript.querySelectorAll('.msg')].reverse().filter((m) => inWin(Number(m.dataset.ts) || 0, win)).map((m) => {
     const clone = m.cloneNode(true); clone.querySelectorAll('.who,.meta').forEach((x) => x.remove());
     const cls = m.classList;
     const out = cls.contains('phoneout') || cls.contains('botout');
@@ -1872,6 +1989,7 @@ function transcriptData() {
       : (cls.contains('botin') || cls.contains('botout')) ? 'bot'
       : cls.contains('relay-phone') ? 'relayphone'
       : cls.contains('relay-bot') ? 'relaybot'
+      : cls.contains('relay-team') ? 'team'
       : 'agent';
     const who = m.querySelector('.who')?.textContent?.trim() || (role === 'you' ? 'You' : 'Agent');
     return { role, who, out, text: clone.textContent.trim() };
@@ -1886,7 +2004,7 @@ function shareHtml({ msgs, team, recs, stats, sms = [], bots = [], tasks = [], s
   const chips = team.map((a) => `<span class="ag">${E(a.icon || '•')} ${E(a.name)}<i>${E(a.title)}</i></span>`).join('');
   const bubbles = msgs.map((m) => `<div class="b ${m.role}${m.out ? ' out' : ''}">${m.role !== 'you' ? `<span class="w">${E(m.who)}</span>` : ''}${E(m.text)}</div>`).join('');
   // Every leg's audio, oldest first: the caller's call AND each outbound call Aria placed.
-  const audio = recs.slice().sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0)).map((r) => `<div class="rec"><div class="rh"><b>${r.kind === 'outbound' ? '📞 Aria → ' + E(r.to || 'outbound') : '☎️ The caller\'s call'}</b> <span class="rt">${r.duration || 0}s${r.termination ? ' · ' + E(r.termination) : ''}${r.at ? ' · ' + tm(r.at) : ''}</span></div><audio controls src="${r.data}"></audio></div>`).join('') || '<p class="muted">No audio captured for this call.</p>';
+  const audio = recs.slice().sort((a, b) => new Date(a.at || 0) - new Date(b.at || 0)).map((r) => `<div class="rec"><div class="rh"><b>${r.role === 'owner' || (!r.role && r.kind !== 'outbound') ? (/^app-/.test(r.to || '') ? '☎️ The caller\'s call (browser)' : '☎️ The caller\'s call') : '📞 Aria → ' + E(r.to || 'outbound')}</b> <span class="rt">${r.duration || 0}s${r.termination ? ' · ' + E(r.termination) : ''}${r.at ? ' · ' + tm(r.at) : ''}</span></div><audio controls src="${r.data}"></audio></div>`).join('') || '<p class="muted">No audio captured for this call.</p>';
   // Every page the team worked through, in order, as thumbnails with where they were.
   const screenSec = screens.length
     ? '<h2>Screens the team worked through</h2><div class="shots">' + screens.map((s) => `<figure class="shot"><a href="${E(s.url)}" target="_blank" rel="noopener"><img src="data:image/jpeg;base64,${s.jpeg}" alt="${E(s.title || s.url)}" loading="lazy"></a><figcaption><b>${E(s.title || s.url)}</b><span>${E(s.url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60))} · ${tm(s.at)}</span></figcaption></figure>`).join('') + '</div>'
@@ -1980,6 +2098,8 @@ h2{font-size:15px;color:var(--muted);text-transform:uppercase;letter-spacing:.05
 .b.relayphone .w{color:#f472b6}
 .b.relaybot{align-self:flex-start;background:var(--card);border:1px solid var(--line);border-left:3px solid #7c3aed}
 .b.relaybot .w{color:#b89bff}
+.b.team{align-self:flex-start;background:var(--card);border:1px dashed var(--line);border-left:3px solid #E8833A;opacity:.9}
+.b.team .w{color:#E8833A}
 .b.out{align-self:flex-end;border-bottom-right-radius:4px}
 .b .w{display:block;font-size:11px;color:var(--accent);font-weight:600;margin-bottom:2px}
 .rec{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
@@ -2031,15 +2151,18 @@ async function buildShareable(opts = {}) {
   const btn = $('make-share'), status = $('share-status');
   btn.disabled = true; const prev = status.textContent; status.textContent = auto ? 'auto-building recap…' : 'building recap…';
   try {
+    // The call this recap is about: the one that just ended (frozen at call.end), else the live one.
+    // With no call at all (a text-only session) there is no window and nothing is cut.
+    const win = lastCallWin || callWin || null;
     let recs = [];
-    try { recs = (await (await fetch('/api/recordings')).json()).recordings || []; } catch {}
-    // Every leg from the last 12 h (the caller's call + each outbound call Aria placed), up to 8.
+    // 14 Nov pm: ONLY this call's legs — the caller's leg plus the outbound calls it spawned (by call
+    // sid, server-side ledger). A text-only session gets no recordings rather than the account's.
+    try { recs = (await (await fetch(win ? `/api/recordings?session=${encodeURIComponent(SESSION)}&call=${encodeURIComponent(win.callSid)}&from=${win.startedAt}&to=${win.endedAt || ''}&strict=1` : `/api/recordings?session=${encodeURIComponent(SESSION)}&strict=1`)).json()).recordings || []; } catch {}
     const withAudio = [];
-    const recSince = Date.now() - 12 * 3600 * 1000;
-    for (const r of recs.filter((x) => !x.mirror_of && (!x.at || new Date(x.at).getTime() >= recSince)).slice(0, 8)) { try { withAudio.push({ ...r, data: await dataUrl(await (await fetch('/api/recording/' + r.call_sid)).blob()) }); } catch {} }
-    // Every page the team worked through this session (server keeps one jpeg per page visited).
+    for (const r of recs.filter((x) => !x.mirror_of).slice(0, 8)) { try { withAudio.push({ ...r, data: await dataUrl(await (await fetch('/api/recording/' + r.call_sid)).blob()) }); } catch {} }
+    // Every page the team worked through DURING THIS CALL (server keeps one jpeg per page visited).
     let screens = [];
-    try { screens = ((await (await fetch(`/api/sessions/${encodeURIComponent(SESSION)}/screens`)).json()).screens || []).slice(-24); } catch {}
+    try { screens = ((await (await fetch(`/api/sessions/${encodeURIComponent(SESSION)}/screens`)).json()).screens || []).filter((s) => inWin(s.at, win)).slice(-24); } catch {}
     // Background tasks THIS CALL started (13 Nov: was "anything touched in the last 12 h", which
     // dragged unrelated threads into the recap): full thread, with attached screenshots/sketches
     // inlined so the recap is one portable file.
@@ -2047,7 +2170,8 @@ async function buildShareable(opts = {}) {
     try {
       const all = (await (await fetch('/api/tasks')).json()).tasks || [];
       let imgBudget = 12; // keep the file sane — recordings already weigh a few MB
-      for (const row of all.filter((t) => callTasks.has(t.id)).slice(0, 8)) {
+      const taskIds = win?.tasks || callTasks;
+      for (const row of all.filter((t) => taskIds.has(t.id)).slice(0, 8)) {
         try {
           const full = await (await fetch('/api/tasks/' + encodeURIComponent(row.id))).json();
           if (full.error) continue;
@@ -2071,8 +2195,8 @@ async function buildShareable(opts = {}) {
     } catch {}
     const callCost = Math.max(0, costTotal - callCostBase) + s2sCostCall;
     const html = shareHtml({
-      msgs: transcriptData(), team: TEAM, recs: withAudio, sms: smsLog.slice(), bots: botLog.slice(), tasks: shareTasks,
-      screens, phones: phoneLog.slice(), owner: ownerLog.slice(), pins: pinLog.slice(), arch,
+      msgs: transcriptData(win), team: TEAM, recs: withAudio, sms: smsLog.filter((x) => inWin(x.at, win)), bots: botLog.filter((x) => inWin(x.at, win)), tasks: shareTasks,
+      screens, phones: phoneLog.filter((x) => inWin(x.at, win)), owner: ownerLog.filter((x) => inWin(x.at, win)), pins: pinLog.filter((x) => inWin(x.at, win)), arch,
       stats: {
         turns: turns || $('st-turns')?.textContent,
         model: $('st-model')?.textContent?.replace(/[–-]/g, '').trim(),

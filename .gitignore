@@ -17,6 +17,7 @@ public/recaps/
 # runtime state and personal data — never published
 .mcp-servers.json
 .tasks.json
+.who-answered.json
 .tasks-media/
 memory/
 knowledge/KB-contacts.md

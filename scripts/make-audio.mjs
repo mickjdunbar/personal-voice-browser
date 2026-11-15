@@ -29,7 +29,10 @@ function seamless(buf, fadeSecs = 0.3) {
   return out;
 }
 
-// ---- ambience: low room tone — a touch of mains hum under filtered brown noise ----
+// ---- ambience: soft room tone — band-limited brown noise, no tonal content ----------
+// 14 Nov pm: the original bed mixed in 50 Hz + 100 Hz sines ("a touch of mains hum"). On a
+// WebRTC call through headphones that read as an electrical buzz, so the tones are gone and a
+// high-pass takes the sub-150 Hz rumble out of the brown noise as well. What is left is "air".
 function ambience(secs = 12) {
   const n = SR * secs;
   const out = new Float32Array(n);
@@ -37,12 +40,13 @@ function ambience(secs = 12) {
   for (let i = 0; i < n; i++) {
     const t = i / SR;
     brown = (brown + 0.02 * (Math.random() * 2 - 1)) / 1.02;
-    const hum = 0.0045 * Math.sin(2 * Math.PI * 50 * t) + 0.003 * Math.sin(2 * Math.PI * 100 * t);
-    const lfo = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.07 * t); // slow breathing of the bed
-    out[i] = (brown * 2.2 * 0.018 + hum) * lfo;
+    const lfo = 0.7 + 0.3 * Math.sin(2 * Math.PI * 0.07 * t); // slow breathing of the bed
+    out[i] = brown * 2.2 * 0.018 * lfo;
   }
-  // one-pole low-pass ~500 Hz to take the hiss off
-  const a = Math.exp(-2 * Math.PI * 500 / SR);
+  // band-pass by two one-pole stages: high-pass ~150 Hz (rumble off), low-pass ~900 Hz (hiss off)
+  const ah = Math.exp(-2 * Math.PI * 150 / SR);
+  let yl = 0, xl = 0; for (let i = 0; i < n; i++) { const x = out[i]; yl = ah * (yl + x - xl); xl = x; out[i] = yl; }
+  const a = Math.exp(-2 * Math.PI * 900 / SR);
   let y = 0; for (let i = 0; i < n; i++) { y = a * y + (1 - a) * out[i]; out[i] = y; }
   return seamless(out, 0.4);
 }

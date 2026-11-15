@@ -31,11 +31,12 @@ import { HOST, pickSpecialist } from './team.js';
 import { Lead } from './lead.js';
 import { renderContext, appendContext, getContext } from '../context.js';
 import { currentTimeLine } from '../clock.js';
-import { chatBotTools, askChatBot } from '../chat/bots.js';
-import { mcpTools, mcpCapabilityText, zapierGatewayPresent, ZAPIER_RECIPE } from '../mcp/servers.js';
-import { listMcpTools, callMcpTool } from '../mcp/client.js';
+import { chatBotTools, askChatBot, setBots, publicBots, findBot } from '../chat/bots.js';
+import { providerMeta } from '../chat/providers.js';
+import { mcpTools, mcpCapabilityText, zapierGatewayPresent, ZAPIER_RECIPE, setServers, publicServers, findServer, presetMeta } from '../mcp/servers.js';
+import { listMcpTools, callMcpTool, probeServer } from '../mcp/client.js';
 import { placeAskCall, checkAskTarget } from '../phone/ask.js';
-import { getTestTarget } from '../phone/testTarget.js';
+import { getTestTarget, setTestTarget } from '../phone/testTarget.js';
 import { memoryDigest } from './memorist.js';
 import { createLogger } from '../logger.js';
 
@@ -111,6 +112,24 @@ const CREATE_TASK_TOOL = { type: 'function', function: { name: 'create_task', de
 const SHARE_SCREENSHOT_TOOL = { type: 'function', function: { name: 'share_screenshot', description: 'Attach a screenshot of the page your browser is on RIGHT NOW to this task thread, so the owner SEES it. Use it whenever a picture beats words: a chart, a map, a product, a seat plan, a table of prices, a confusing page. Navigate to what you want to show FIRST, then call this, then refer to the image in your written reply.', parameters: { type: 'object', properties: { caption: { type: 'string', description: 'One short line saying what the image shows, e.g. "The official Futurity schedule page".' } } } } };
 // 14 Nov: chart a business's phone menu. Background job — one call per branch, result = a diagram in the task thread.
 const MAP_IVR_TOOL = { type: 'function', function: { name: 'map_ivr', description: 'MAP a business\'s automated phone menu (IVR): rings the number, listens to the whole "press 1 for…" prompt, then rings again for every option (pressing the keys in turn, breadth-first) until the menu tree is charted, and posts a diagram of it plus every prompt transcript into the owner\'s task thread. Use ONLY when the owner explicitly asks to map / chart / explore / document a phone menu or its DTMF options. It is a background job that takes several minutes and many calls: this tool returns at once; say the map has started and that the diagram will arrive in the thread. Never use it to get an answer from a business — that is phone_someone.', parameters: { type: 'object', properties: { to: { type: 'string', description: 'The number to map, E.164 (+61131334). An Australian 13/1300/1800 number keeps its digits: 13 13 34 → +61131334.' }, name: { type: 'string', description: 'The business name, e.g. HCF.' }, max_depth: { type: 'integer', description: 'How many menu levels deep to go (1-5). Default 3.' }, max_calls: { type: 'integer', description: 'Call budget (1-40). Default 20. Each branch costs one call.' } }, required: ['to'] } } };
+const RESUME_IVR_MAP_TOOL = { type: 'function', function: { name: 'resume_ivr_map', description: 'RESUME a phone-menu map that stopped before it finished (server restart, stopped by the owner, call budget spent). Carries on from the branches never rung, in the same thread. Use when the owner says to resume / continue / keep going / "go all the way" on a map that the LIVE STATUS shows as NOT running. Never start a new map_ivr for a number that already has a resumable map.', parameters: { type: 'object', properties: { map_id: { type: 'string', description: 'The map_id from the LIVE STATUS. Omit to resume the most recent stopped map in this thread.' }, extra_calls: { type: 'integer', description: 'Extra calls to add to the budget if it was spent (0-40).' } } } } };
+// 15 Nov: Aria configures the Personal Voice Browser's own Talk Settings — but ONLY for an owner on
+// the web client (console text, a WebRTC call from the page, or a task thread opened from it). A
+// caller on a phone line or over WhatsApp/SMS can list, never change (fromWebClient()).
+const TALK_SETTINGS_TOOL = { type: 'function', function: { name: 'talk_settings', description: 'Read or change this Personal Voice Browser\'s own Talk Settings: the external CHATBOTS you can message with ask_chatbot (REST endpoints — e.g. a Cognigy REST endpoint URL, Dialogflow CX, Vertex / CX Agent Studio, ElevenLabs), the MCP SERVERS whose tools the team can use, and the TEST-DIAL redirect for outbound calls. CHANGES ARE ALLOWED ONLY WHEN THE OWNER IS ON THE WEB CLIENT (the Personal Voice Browser page in a browser, a WebRTC call from it, or a task thread opened from it) — never from a phone line or a WhatsApp/SMS message: the tool refuses then; tell them so and that they can do it from the page. action=list needs nothing (allowed anywhere) — USE IT whenever the caller asks what chatbots, REST endpoints, MCP servers or MCP tools are available / set up / connected, and read back the names (chatbots by name + provider; MCP servers by name + how many tools) in plain words. add_chatbot needs name + url (plus provider, api_key, model, reply_path, headers_json, body_json when given) — it is saved, then probed with a hello so you can report what it replied. add_mcp_server needs name + url (plus auth none|bearer|header, api_key, header_name, allow) — it is probed first and saved only if it answers; report its tools. remove_chatbot / remove_mcp_server need id (or the name). test_dial needs enabled (+ number when turning it on). Always confirm the result in plain words (names and ids, never keys). Do the change yourself right away when asked — no need to hand it off.', parameters: { type: 'object', properties: {
+  action: { type: 'string', enum: ['list', 'add_chatbot', 'remove_chatbot', 'add_mcp_server', 'remove_mcp_server', 'test_dial'] },
+  id: { type: 'string', description: 'For remove_*: the id (or name) of the chatbot / server. For add_*: optional explicit id.' },
+  name: { type: 'string' }, url: { type: 'string' },
+  provider: { type: 'string', description: 'Chatbot provider id, e.g. cognigy (default), dialogflow_cx, vertex_agent, elevenlabs, generic — see list.' },
+  api_key: { type: 'string', description: 'Secret for the endpoint, only if the owner gave one. Never echo it back.' },
+  model: { type: 'string' }, reply_path: { type: 'string' },
+  headers_json: { type: 'string', description: 'Extra HTTP headers as a JSON object string.' },
+  body_json: { type: 'string', description: 'Chatbot body template as a JSON object string ({{message}}, {{session}}, {{user}} placeholders).' },
+  auth: { type: 'string', enum: ['none', 'bearer', 'header'], description: 'MCP server auth.' },
+  header_name: { type: 'string', description: 'MCP: header name when auth=header.' },
+  allow: { type: 'string', description: 'MCP: comma-separated tool names to allow (optional).' },
+  enabled: { type: 'boolean', description: 'test_dial: on/off.' }, number: { type: 'string', description: 'test_dial: the E.164 number every outbound call is redirected to.' }
+}, required: ['action'] } } };
 const SHARE_SKETCH_TOOL = { type: 'function', function: { name: 'share_sketch', description: 'DRAW something for the owner: attach a diagram you author as SVG to this task thread (it renders as an image). Use it for layouts, step diagrams, timelines, simple maps, visual comparisons — anything clearer drawn than written. Author clean, SELF-CONTAINED SVG: a viewBox (e.g. 0 0 800 500), a background rect first, readable text (16px+), good contrast, no external references and no scripts.', parameters: { type: 'object', properties: { svg: { type: 'string', description: 'The complete <svg …>…</svg> markup, self-contained.' }, caption: { type: 'string', description: 'One short line saying what the sketch shows.' } }, required: ['svg'] } } };
 // A request that an external MCP service (email, chat, SMS, calendar) likely handles — when a server
 // is connected, these go to the deep lane (the capable model + tool loop) rather than being answered
@@ -212,6 +231,7 @@ export class Navigator {
   }
 
   async start(info = {}) {
+    this.info = info || {}; // 15 Nov: where this session came from (callSid/from/to/direction/mode, or channel text/task)
     if (info.from) this.callerFrom = String(info.from);
     await this.store.init().catch(() => {});
     await getBrowser().tab(this.sessionId); // ensure the session's first tab exists
@@ -254,6 +274,8 @@ export class Navigator {
     }
     if (caps.length) parts.push('EXTRA THINGS YOU CAN DO (as well as browsing the web):\n- ' + caps.join('\n- '));
     if (this.metadata.instructions) parts.push(`EXTRA INSTRUCTIONS:\n${this.metadata.instructions}`);
+    // 14 Nov pm: facts checked this instant (background jobs in this thread). Beats anything said earlier.
+    if (this.metadata.liveStatus) parts.push(`LIVE STATUS, checked just now — trust it over anything said earlier in this thread, and never claim a job is running unless it says RUNNING:\n${this.metadata.liveStatus}`);
     if (this.handoff) { parts.push(SPECIALIST_PREAMBLE); if (this.handoff.summary) parts.push(`What has happened on the call so far: ${this.handoff.summary}`); }
     const info = { sops: [], knowledge: [], retrieval: null };
     if (lane === 'deep') {
@@ -307,24 +329,36 @@ export class Navigator {
 
   /** The user message for a deep turn: text, plus a downscaled screenshot when vision is on. */
   async userContent(text, lane) {
-    if (lane !== 'deep' || !config.llm.vision || !this.tab || this.tab.url === 'about:blank') return text;
-    const b64 = await this.tab.frame({ quality: 35 }).catch(() => null);
-    if (!b64) return text;
-    return [{ type: 'text', text }, { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b64}`, detail: 'low' } }];
+    // Images the owner attached to this turn (task threads, 14 Nov) always go to the model,
+    // whatever the vision flag says: they ARE the request. The page screenshot stays opt-in.
+    const own = (this.turnImages || []).map((url) => ({ type: 'image_url', image_url: { url, detail: 'auto' } }));
+    const wantShot = lane === 'deep' && config.llm.vision && this.tab && this.tab.url !== 'about:blank';
+    if (!own.length && !wantShot) return text;
+    const parts = [{ type: 'text', text }, ...own];
+    if (wantShot) {
+      const b64 = await this.tab.frame({ quality: 35 }).catch(() => null);
+      if (b64) parts.push({ type: 'image_url', image_url: { url: `data:image/jpeg;base64,${b64}`, detail: 'low' } });
+    }
+    return parts;
   }
 
   // --- the turn ----------------------------------------------------------------
   /**
    * @param {string} text caller's words ('' for a greeting)
    * @param {object} writer { push(delta), write(text), text, started }
-   * @param {object} [o] { signal, turnId, kind: 'speech'|'greeting'|'no_input' }
+   * @param {object} [o] { signal, turnId, kind: 'speech'|'greeting'|'no_input', team: boolean }
+   *   team:true = `text` is Aria's hand-off to the team (an S2S background browse), NOT the caller's
+   *   words: no caller.said, no caller sentiment, and the reply is tagged `team` (it is what the team
+   *   found for Aria to say, not what Aria said). 15 Nov: the rephrased request used to appear in the
+   *   console as a second caller bubble with its own sentiment score.
    * @returns {Promise<{record, hangup, handback}>}
    */
-  async turn(text, writer, { signal, turnId, kind = 'speech' } = {}) {
+  async turn(text, writer, { signal, turnId, kind = 'speech', images = null, team = false } = {}) {
     this.turns += 1;
+    this.turnImages = Array.isArray(images) && images.length ? images.slice(0, 8) : null;
     const t0 = Date.now();
-    const record = { route: 'navigator', steps: [], model_calls: [], flags: [], own_tools: [], turn: this.turns };
-    const callerSent = text ? scoreSentiment(text) : null;
+    const record = { route: 'navigator', steps: [], model_calls: [], flags: [], own_tools: [], turn: this.turns, team: Boolean(team) || undefined };
+    const callerSent = text && !team ? scoreSentiment(text) : null;
     if (callerSent) {
       this.sentiment.caller.push(callerSent.score);
       const trend = trendOf(this.sentiment.caller);
@@ -384,6 +418,8 @@ export class Navigator {
     if (lane === 'fast' && this.handoff && this.deepTurns > 0 && kind === 'speech' && text && !isChitChat(text)) lane = 'deep';
     // Email/chat/SMS/calendar requests need the capable model + tool loop when an MCP server is connected.
     if (lane === 'fast' && text && kind === 'speech' && mcpTools().length && MCP_INTENT_RX.test(text)) lane = 'deep';
+    // An attached image needs the vision-capable deep lane (the fast lane never sees images).
+    if (lane === 'fast' && this.turnImages) { lane = 'deep'; record.flags.push('images'); }
     record.lane = lane;
     record.route = `navigator:${lane}`;
     // Who on the team takes this turn: a specialist on the deep lane, the host otherwise.
@@ -407,7 +443,9 @@ export class Navigator {
       // talked over. For web tasks we stay quiet (the ambience bed covers the gap) and lead with the
       // answer. Fillers are still essential when the agent steps off to talk to a human or a bot.
       const intent = intentOf(text);
-      if (intent === 'phone' || intent === 'chatbot') { writer.write(pickFiller(intent)); record.steps.push({ name: 'filler', ms: Date.now() - t0 }); }
+      // Written channels (task threads) get no spoken-style filler: nobody is holding a line, and the
+      // filler used to land glued to the front of the written answer ("…one sec.BOM's page shows…").
+      if ((intent === 'phone' || intent === 'chatbot') && !this.metadata.task) { writer.write(pickFiller(intent)); record.steps.push({ name: 'filler', ms: Date.now() - t0 }); }
       // Stream the browser view while the specialist works, so the console shows motion
       // (page loads, redirects, results appearing), not just the frame after each tool.
       clearInterval(this.frameTicker);
@@ -447,7 +485,8 @@ export class Navigator {
     // external chatbot. Browsing tools only on the deep lane.
     const special = [];
     if (getContext(this.sessionId).remember) special.push(REMEMBER_TOOL);
-    if (config.phoneAsk.enabled) special.push(PHONE_TOOL, MAP_IVR_TOOL);
+    if (config.phoneAsk.enabled) special.push(PHONE_TOOL, MAP_IVR_TOOL, RESUME_IVR_MAP_TOOL);
+    special.push(TALK_SETTINGS_TOOL); // 15 Nov: listing anywhere; changes gated inside (web client only)
     if (!this.metadata.task) special.push(CREATE_TASK_TOOL); // no tasks spawning tasks
     else special.push(SHARE_SCREENSHOT_TOOL, SHARE_SKETCH_TOOL); // task threads can carry images
     const botTools = chatBotTools();
@@ -554,8 +593,8 @@ export class Navigator {
         let result;
         this.emit('tool.call', { turn: this.turns, name: c.name, args: c.args });
         // Special non-browser tools: note a caller fact, message an external chatbot, or phone a person.
-        if (c.name === 'remember_about_caller' || c.name === 'ask_chatbot' || c.name === 'phone_someone' || c.name === 'map_ivr' || c.name === 'create_task' || c.name === 'share_screenshot' || c.name === 'share_sketch' || c.name === 'list_mcp_tools' || c.name === 'use_mcp_tool') {
-          if (c.name === 'ask_chatbot' && Date.now() - lastSpokenAt > 1200) { writer.write(pickFiller('chatbot')); lastSpokenAt = Date.now(); }
+        if (c.name === 'talk_settings' || c.name === 'remember_about_caller' || c.name === 'ask_chatbot' || c.name === 'phone_someone' || c.name === 'map_ivr' || c.name === 'create_task' || c.name === 'share_screenshot' || c.name === 'share_sketch' || c.name === 'list_mcp_tools' || c.name === 'use_mcp_tool') {
+          if (c.name === 'ask_chatbot' && !this.metadata.task && Date.now() - lastSpokenAt > 1200) { writer.write(pickFiller('chatbot')); lastSpokenAt = Date.now(); } // 15 Nov: no spoken filler in a written task thread
           // Confirm the call BEFORE it is placed — but only if the model didn't already narrate it
           // (it usually says "I'm ringing X now" in this same message). A second hardcoded line on top
           // stacked 2-3 confirmations that played out of order, AFTER the person had already answered.
@@ -601,7 +640,90 @@ export class Navigator {
   }
 
   /** Remember a caller fact, or relay to an external chatbot. */
+  /**
+   * 15 Nov: is the owner driving this session from the WEB CLIENT? True for console text, a WebRTC
+   * call placed from the page (jambonz `to` = app-…), the background browse of such a call, and a
+   * task thread that was opened from the console (tasks/store sets metadata.webOwner per turn).
+   * False for a phone line (PSTN from/to), WhatsApp/SMS threads and Lead worker sub-sessions.
+   */
+  fromWebClient() {
+    if (this.metadata?.task) return Boolean(this.metadata.webOwner);
+    const info = this.info || {};
+    if (this.channel === 'voice' || this.channel === 'specialist') return /^app-/i.test(String(info.to || ''));
+    return info.channel === 'text' || info.channel === 'boot';
+  }
+
+  /** The talk_settings tool: list anywhere; add/remove/test-dial only from the web client. */
+  async talkSettings(args = {}) {
+    const action = String(args.action || 'list');
+    const sid = this.metadata?.task ? 'main' : String(this.sessionId).split('#')[0]; // test-dial is per console session
+    const view = () => ({
+      chatbots: publicBots().map((b) => ({ id: b.id, name: b.name, provider: b.provider, url: b.url, has_key: b.hasKey, model: b.model || undefined })),
+      mcp_servers: publicServers().map((s) => ({ id: s.id, name: s.name, url: s.url, auth: s.auth, has_key: s.hasKey, tools: s.toolCount, allow: s.allow })),
+      test_dial: getTestTarget(sid),
+      chatbot_providers: providerMeta().map((p) => `${p.id} = ${p.label}`),
+      mcp_presets: presetMeta().map((p) => p.id || p.name).filter(Boolean),
+      note: 'The SIP softphone fields (wss / realm / user / password) live only in the browser — the owner sets those by hand in Talk Settings.'
+    });
+    if (action === 'list') return { ok: true, ...view() };
+    if (!this.fromWebClient()) {
+      this.emit('settings.refused', { action, why: 'not the web client' });
+      return { error: 'Settings can only be changed from the web client — the Personal Voice Browser page in a browser (or a call / task started from it). Not over a phone line, WhatsApp or SMS. Tell the owner that, and that it takes a moment from the page.', refused: true };
+    }
+    const parseJson = (s, what) => { if (!s) return undefined; try { const o = JSON.parse(s); return o && typeof o === 'object' ? o : undefined; } catch { throw new Error(`${what} is not valid JSON`); } };
+    const clean = (s) => String(s || '').trim();
+    try {
+      if (action === 'add_chatbot') {
+        if (!clean(args.name) || !/^https?:\/\//i.test(clean(args.url))) return { error: 'add_chatbot needs a name and an http(s) url' };
+        const bot = { id: clean(args.id) || undefined, name: clean(args.name), provider: clean(args.provider) || 'cognigy', url: clean(args.url), apiKey: clean(args.api_key) || '', model: clean(args.model) || undefined, replyPath: clean(args.reply_path) || undefined, headers: parseJson(args.headers_json, 'headers_json'), bodyTemplate: parseJson(args.body_json, 'body_json') };
+        const others = publicBots().filter((b) => b.id !== bot.id && b.name.toLowerCase() !== bot.name.toLowerCase());
+        setBots([...others, bot]); // the console's redacted list keeps existing secrets (normalize)
+        const saved = findBot(bot.id || bot.name);
+        this.emit('settings.changed', { what: 'bots', action, id: saved?.id, name: saved?.name });
+        // Probe it once so the owner hears whether it actually answers.
+        const r = saved ? await askChatBot(saved.id, `${this.sessionId}#probe`, 'hello').catch((err) => ({ error: err.message })) : { error: 'not saved' };
+        return { ok: true, saved: saved ? { id: saved.id, name: saved.name, provider: saved.provider, url: saved.url } : null, probe: r.error ? { ok: false, error: r.error } : { ok: true, reply: String(r.reply || '').slice(0, 300), ms: r.ms }, chatbots: view().chatbots, note: 'It is now in Talk Settings → Chatbots and usable with ask_chatbot right away.' };
+      }
+      if (action === 'remove_chatbot') {
+        const b = findBot(clean(args.id) || clean(args.name));
+        if (!b) return { error: `no chatbot "${clean(args.id) || clean(args.name)}" — see list` };
+        setBots(publicBots().filter((x) => x.id !== b.id));
+        this.emit('settings.changed', { what: 'bots', action, id: b.id, name: b.name });
+        return { ok: true, removed: { id: b.id, name: b.name }, chatbots: view().chatbots };
+      }
+      if (action === 'add_mcp_server') {
+        if (!clean(args.name) || !/^https?:\/\//i.test(clean(args.url))) return { error: 'add_mcp_server needs a name and an http(s) url' };
+        const srv = { id: clean(args.id) || undefined, name: clean(args.name), url: clean(args.url), auth: ['none', 'bearer', 'header'].includes(clean(args.auth)) ? clean(args.auth) : (clean(args.api_key) ? 'bearer' : 'none'), apiKey: clean(args.api_key) || '', headerName: clean(args.header_name) || undefined, headers: parseJson(args.headers_json, 'headers_json'), allow: clean(args.allow) || undefined };
+        const probe = await probeServer(srv);
+        if (probe?.error) return { error: `the server did not answer as an MCP server (${probe.error}) — not saved. Check the URL / auth with the owner.`, not_saved: true };
+        const others = publicServers().filter((s) => s.id !== srv.id && s.name.toLowerCase() !== srv.name.toLowerCase());
+        setServers([...others, srv]);
+        const saved = findServer(srv.id || srv.name);
+        this.emit('settings.changed', { what: 'mcp', action, id: saved?.id, name: saved?.name, tools: (probe.tools || []).length });
+        return { ok: true, saved: saved ? { id: saved.id, name: saved.name, url: saved.url, auth: saved.auth } : null, tools: (probe.tools || []).slice(0, 40).map((t) => t.name), server_info: probe.serverInfo || undefined, mcp_servers: view().mcp_servers, note: 'It is now in Talk Settings → MCP servers; use list_mcp_tools / use_mcp_tool from the next turn.' };
+      }
+      if (action === 'remove_mcp_server') {
+        const s = findServer(clean(args.id) || clean(args.name));
+        if (!s) return { error: `no MCP server "${clean(args.id) || clean(args.name)}" — see list` };
+        setServers(publicServers().filter((x) => x.id !== s.id));
+        this.emit('settings.changed', { what: 'mcp', action, id: s.id, name: s.name });
+        return { ok: true, removed: { id: s.id, name: s.name }, mcp_servers: view().mcp_servers };
+      }
+      if (action === 'test_dial') {
+        const cur = getTestTarget(sid);
+        const enabled = typeof args.enabled === 'boolean' ? args.enabled : cur.enabled;
+        const number = clean(args.number).replace(/[^\d+]/g, '') || cur.number || '';
+        if (enabled && number.replace(/\D/g, '').length < 5) return { error: 'turning test-dial ON needs a valid number to redirect calls to' };
+        const t = setTestTarget(sid, { enabled, number });
+        this.emit('settings.changed', { what: 'test_dial', action, enabled: t.enabled, number: t.number });
+        return { ok: true, test_dial: t, note: t.enabled ? `every outbound call from this console now rings ${t.number} instead of the real number` : 'outbound calls go to their real numbers' };
+      }
+      return { error: `unknown action ${action}` };
+    } catch (err) { return { error: err.message }; }
+  }
+
   async runSpecialTool(name, args) {
+    if (name === 'talk_settings') return this.talkSettings(args || {});
     if (name === 'remember_about_caller') {
       const note = args?.note || '';
       const { added, text } = appendContext(this.sessionId, note);
@@ -688,7 +810,7 @@ export class Navigator {
       // Dynamic import: tasks/store.js imports sessions.js which imports this file — a static
       // import would make the cycle load-order sensitive; at call time everything is settled.
       const { createTask } = await import('../tasks/store.js');
-      const t = createTask({ text: request, title: args?.title, via: this.channel === 'voice' ? 'call' : this.channel || 'console' });
+      const t = createTask({ text: request, title: args?.title, via: this.channel === 'voice' ? 'call' : this.channel || 'console', web: this.fromWebClient() });
       this.emit('task.created', { task: t.id, title: t.title });
       return { ok: true, task_id: t.id, title: t.title, note: `Task started — it is being worked on in the background right now and every update lands in the caller's Tasks channel, which is delivered to their phone on WhatsApp AUTOMATICALLY (you do not need a WhatsApp tool; never say you cannot message them on WhatsApp). Tell the caller in ONE short line that it's underway and they'll get the updates on WhatsApp.` };
     }
@@ -721,6 +843,19 @@ export class Navigator {
       if (r.error) return r;
       this.emit('ivrmap.started', { map: r.map.id, to: r.map.to, task: r.map.task });
       return { ok: true, map_id: r.map.id, task_id: r.map.task, dialing: r.map.dialed, redirected: r.map.redirected, note: `The map has started in the background (up to ${r.map.max_depth} levels, ${r.map.max_calls} calls). Progress and the finished diagram land in ${this.metadata.task ? 'THIS thread' : "the owner's Async task channel"} automatically — tell the owner it is underway and will take several minutes; do not wait for it or call this again.` };
+    }
+    if (name === 'resume_ivr_map') {
+      const { resumeIvrMap, listIvrMaps } = await import('../phone/ivrmap.js');
+      let id = String(args?.map_id || '').trim();
+      if (!id) {
+        const mine = listIvrMaps().filter((m) => m.status !== 'running' && (!this.metadata.task || m.task === this.metadata.task));
+        if (!mine.length) return { error: 'there is no stopped map to resume' + (this.metadata.task ? ' in this thread' : '') };
+        id = mine[0].id;
+      }
+      const r = resumeIvrMap(id, { extraCalls: args?.extra_calls });
+      if (r.error) return r;
+      this.emit('ivrmap.started', { map: r.map.id, to: r.map.to, task: r.map.task, resumed: true });
+      return { ok: true, map_id: r.map.id, branches_left: r.left, dialing: r.map.dialed, redirected: r.map.redirected, note: `Resumed in the background: ${r.left} branches left to ring. Progress lands in the thread automatically — say it is underway and do not call this again.` };
     }
     if (name === 'phone_someone') {
       const who = args?.name || 'them', question = args?.question || '';
@@ -863,7 +998,7 @@ export class Navigator {
     record.cost_total = this.costTotal;
     // The caller-facing reply is always ARIA's: attribute the spoken line to the host, carry the
     // specialist as `worker` so the feed/panel can still show who actually did the digging.
-    this.emit('agent.said', { turn: this.turns, text: reply, lane: record.lane, agent: { id: HOST.id, name: HOST.name, title: HOST.title, color: HOST.color }, worker: a.id !== HOST.id ? { id: a.id, name: a.name, title: a.title, color: a.color } : undefined, ttft_ms: record.model_calls[0]?.first_token_ms ?? null, total_ms: record.steps.at(-1).ms, cost: record.cost, cost_total: this.costTotal, hangup: Boolean(hangup), handback });
+    this.emit('agent.said', { turn: this.turns, text: reply, lane: record.lane, team: record.team || undefined, agent: { id: HOST.id, name: HOST.name, title: HOST.title, color: HOST.color }, worker: a.id !== HOST.id ? { id: a.id, name: a.name, title: a.title, color: a.color } : undefined, ttft_ms: record.model_calls[0]?.first_token_ms ?? null, total_ms: record.steps.at(-1).ms, cost: record.cost, cost_total: this.costTotal, hangup: Boolean(hangup), handback });
     this.emit('turn.record', { turn: this.turns, record });
     this.obs.turn(this.sessionId, { ...record, reply: reply.slice(0, 300) }).catch(() => {});
     // Collapse tool-round scaffolding: keep history readable for the next request

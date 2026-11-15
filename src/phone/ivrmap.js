@@ -37,15 +37,19 @@ function save(m) {
   catch (err) { logger.warn(`map ${m.id} not saved: ${err.message}`); }
 }
 (function load() {
+  const killed = [];
   try {
     if (!fs.existsSync(DIR)) return;
     for (const f of fs.readdirSync(DIR).filter((x) => x.endsWith('.json'))) {
       const m = JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8'));
       if (!m?.id) continue;
-      if (m.status === 'running') { m.status = 'stopped'; m.error = 'server restarted mid-map'; }
+      if (m.status === 'running') { m.status = 'stopped'; m.error = 'server restarted mid-map'; killed.push(m); }
       maps.set(m.id, m);
     }
     if (maps.size) logger.info(`loaded ${maps.size} IVR map(s) from ${DIR}`);
+    // 14 Nov pm: say so in the thread (before this, a restart-killed map looked "still running" to the
+    // owner AND to Aria, who answered from the chat history). Deferred so tasks/store is importable.
+    if (killed.length) setTimeout(() => { for (const m of killed) finalize(m).catch((err) => logger.warn(`map ${m.id}: post-restart finalize failed: ${err.message}`)); }, 4000);
   } catch (err) { logger.warn(`maps load failed: ${err.message}`); }
 })();
 
@@ -58,6 +62,55 @@ export function listIvrMaps() { return [...maps.values()].sort((a, b) => new Dat
 export function getIvrMap(id) { const m = maps.get(id); return m ? { ...pub(m), nodes: m.nodes, queue: m.queue, mermaid: m.mermaid || null } : null; }
 export function stopIvrMap(id) { const m = maps.get(id); if (!m) return { error: 'no such map' }; if (m.status === 'running') { m.status = 'stopped'; m.error = 'stopped by the owner'; touch(m); } return { ok: true, map: pub(m) }; }
 function touch(m) { m.updated_at = new Date().toISOString(); save(m); emitEvent('ivrmap.update', IVRMAP_SESSION, { map: pub(m) }); }
+
+/** Branches still to ring: the queue plus any node whose call was cut off (explored=false, nothing heard). */
+function pendingPaths(m) {
+  const cut = Object.values(m.nodes).filter((n) => !n.explored && !m.queue.includes(n.path)).map((n) => n.path);
+  return [...cut, ...m.queue];
+}
+
+/**
+ * 14 Nov pm: carry a stopped/failed map on from where it stopped — same record, same thread, the
+ * interrupted branch first, then the queue. `extraCalls` tops up the call budget when it was spent.
+ */
+export function resumeIvrMap(id, { extraCalls = 0 } = {}) {
+  const m = maps.get(String(id || ''));
+  if (!m) return { error: 'no such map' };
+  if (m.status === 'running') return { error: 'that map is already running', map: pub(m) };
+  const running = [...maps.values()].find((x) => x.status === 'running');
+  if (running) return { error: `a map is already running (${running.name || running.to}) — one at a time`, map: pub(running) };
+  const pre = checkIvrTarget(m.to);
+  if (pre) return { error: pre };
+  const left = pendingPaths(m);
+  if (!left.length) return { error: 'nothing left to ring on that map — every branch within the depth limit was explored', map: pub(m) };
+  m.queue = left;
+  const extra = Math.max(0, Math.min(40, Number(extraCalls) || 0));
+  if (extra) m.max_calls = Math.min(40, m.max_calls + extra);
+  if (m.calls >= m.max_calls) m.max_calls = Math.min(40, m.calls + left.length); // the budget was spent: room for what is queued
+  if (m.calls >= m.max_calls) return { error: 'the call budget (40) is used up', map: pub(m) };
+  const dial = effectiveDial(IVRMAP_SESSION, m.to);
+  m.dialed = normalizeE164(dial.to); m.redirected = dial.redirected;
+  m.status = 'running'; m.error = null; m.failures = 0;
+  touch(m);
+  const where = m.redirected ? ` ⚠ the test-dial redirect is ON, so I'm actually ringing ${m.dialed}, not ${m.to}.` : '';
+  note(m, `▶ Resuming the map of ${m.name}: ${left.length} branch${left.length === 1 ? '' : 'es'} left, ${m.max_calls - m.calls} call${m.max_calls - m.calls === 1 ? '' : 's'} in the budget. Carrying on from where it stopped.${where}`);
+  crawl(m).catch((err) => { logger.error(`map ${m.id} crashed: ${err.message}`); m.status = 'failed'; m.error = err.message; touch(m); note(m, `✗ The map stopped: ${err.message}`); });
+  return { ok: true, map: pub(m), left: left.length };
+}
+
+/** One line per map in a task thread — read fresh each turn so Aria never reports a dead map as running. */
+export function ivrMapStatus(taskId) {
+  const mine = [...maps.values()].filter((m) => m.taskId === taskId).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  if (!mine.length) return '';
+  return mine.map((m) => {
+    const explored = Object.values(m.nodes).filter((n) => n.explored).length;
+    const left = pendingPaths(m).length;
+    const state = m.status === 'running' ? `RUNNING now (call ${m.calls} of up to ${m.max_calls}, ${left} branch${left === 1 ? '' : 'es'} queued)`
+      : m.status === 'done' ? `finished (${explored} points over ${m.calls} calls)`
+        : `NOT running — ${m.status}${m.error ? ` (${m.error})` : ''} after ${m.calls} call${m.calls === 1 ? '' : 's'}, ${explored} points mapped, ${left} branch${left === 1 ? '' : 'es'} never rung${left ? ' → it can be resumed with resume_ivr_map' : ''}`;
+    return `• ${m.name} (${m.to}, map_id ${m.id}): ${state}${m.page ? ` · page ${m.page}` : ''}`;
+  }).join('\n');
+}
 
 async function note(m, text) {
   if (!m.taskId) return;
@@ -384,7 +437,8 @@ async function finalize(m) {
     const store = await import('../tasks/store.js');
     if (m.taskId && svg) store.attachMedia(m.taskId, { svg, caption: `IVR map of ${m.name} — ${explored.length} points, ${menus} menus, ${m.calls} calls${unexplored ? `, ${unexplored} option${unexplored === 1 ? '' : 's'} left unexplored` : ''}`, kind: 'sketch' });
   } catch (err) { logger.warn(`map ${m.id}: svg not attached: ${err.message}`); }
-  await note(m, `${m.status === 'done' ? '✅ Map complete' : `⚠ Map ${m.status}${m.error ? ` — ${m.error}` : ''}`}: ${explored.length} points over ${m.calls} call${m.calls === 1 ? '' : 's'}${unexplored ? ` (${unexplored} deeper option${unexplored === 1 ? '' : 's'} not rung — raise the depth or call budget to continue)` : ''}.${m.page ? `\nFull map with every prompt transcript: ${m.page}` : ''}`);
+  const left = m.status === 'done' ? 0 : pendingPaths(m).length;
+  await note(m, `${m.status === 'done' ? '✅ Map complete' : `⚠ Map ${m.status}${m.error ? ` — ${m.error}` : ''}`}: ${explored.length} points over ${m.calls} call${m.calls === 1 ? '' : 's'}${unexplored ? ` (${unexplored} deeper option${unexplored === 1 ? '' : 's'} not rung — raise the depth or call budget to continue)` : ''}.${left ? `\n${left} branch${left === 1 ? '' : 'es'} ${left === 1 ? 'was' : 'were'} still to ring — say "resume the map" here and I'll carry on from where it stopped.` : ''}${m.page ? `\nFull map with every prompt transcript: ${m.page}` : ''}`);
   if (m.taskId) { try { const store = await import('../tasks/store.js'); store.setStatus(m.taskId, 'waiting'); } catch { /* */ } }
   logger.info(`map ${m.id} ${m.status}: ${explored.length} nodes, ${m.calls} calls`);
 }

@@ -97,7 +97,10 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
       from,
       to: { type: 'phone', number: num.replace(/^\+/, '') },
       tag: { mode: 'ask', askId, session: sessionId },
-      timeout: 40
+      timeout: 40,
+      // 14 Nov: answering-machine detection — the first who-answered signal, at pickup
+      // (amd_human_detected / amd_machine_detected / amd_tone_detected → /amd hook). PHONE_ASK_AMD=0 disables.
+      ...(/^(0|false|off)$/i.test(process.env.PHONE_ASK_AMD || '') ? {} : { amd: { actionHook: '/amd', thresholdWordCount: 9, timers: { noSpeechTimeoutMs: 5000, decisionTimeoutMs: 15000, toneTimeoutMs: 20000, greetingCompletionTimeoutMs: 2000 } } })
     });
     logger.info(`ask call -> ${num} (askId ${askId}): "${q.slice(0, 70)}"`);
   } catch (err) {
