@@ -397,6 +397,9 @@ details summary{font-size:12px;color:var(--muted);cursor:pointer}
 /* agent = softly tinted in the speaker's colour, with their mini Huey mascot alongside */
 .msg.agent{align-self:flex-start;margin-left:38px;background:color-mix(in srgb,var(--c,var(--accent)) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--c,var(--line)) 32%,var(--line));border-bottom-left-radius:6px}
 .msg.partial{opacity:.65;font-style:italic}
+.msg.note{align-self:center;max-width:92%;background:var(--surface-2);border:1px dashed var(--line);font-size:12px;color:var(--muted)} .msg.note .who{color:var(--ink)}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px} .settings-grid .field-row input{min-width:0;width:100%}
+.field-row select{flex:1;font:inherit;font-size:13px;color:var(--ink);background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:7px 10px}
 .msg .who{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.02em;color:var(--c,var(--muted));background:color-mix(in srgb,currentColor 16%,transparent);border-radius:999px;padding:2px 9px 2px 7px;margin-bottom:5px}
 .msg .who::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex:none}
 .msg .meta{display:block;font-family:var(--mono);font-size:9.5px;color:var(--muted);margin-top:4px;opacity:.85}

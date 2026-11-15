@@ -379,6 +379,20 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
     </div>
     <div class="card">
       <div class="context-box">
+        <div class="ctx-head">Ambience &amp; language <span class="hint">the background sound mixed under calls (decibels — more negative = quieter) and the language calls run in. Saved on the server; Aria can change these too (“turn the background noise down a bit”). Applies from the next call.</span></div>
+        <label class="chk"><input id="amb-enabled" type="checkbox" checked> Background sound on</label>
+        <div class="settings-grid">
+          <label class="field-row">Room tone <input id="amb-bed" type="number" step="1" min="-60" max="0"></label>
+          <label class="field-row">Typing <input id="amb-typing" type="number" step="1" min="-60" max="0"></label>
+          <label class="field-row">Hold pad <input id="amb-hold" type="number" step="1" min="-60" max="0"></label>
+          <label class="field-row">Web trim <input id="amb-trim" type="number" step="1" min="-30" max="6"></label>
+        </div>
+        <label class="field-row">Call language <select id="call-lang"></select></label>
+        <div class="ctx-foot"><span id="settings-status" class="hint">…</span><button id="settings-reset" class="btn ghost small-btn" type="button">Reset to .env</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="context-box">
         <div class="ctx-head">Chatbots <span class="hint">external assistants the team can message with the <b>ask_chatbot</b> tool — a Cognigy bot, an ElevenLabs / Vertex / CX Agent Studio agent, and more. (You can also just ask the team to open a chatbot's web page in the browser and type to it there.)</span></div>
         <div id="bots-list" class="bots-rows"><span class="hint">no chatbots configured yet</span></div>
         <details id="bot-editor" class="bot-editor">
@@ -476,6 +490,13 @@ try { var t = localStorage.getItem('mab.theme'); if (t === 'dark' || t === 'ligh
 </aside>
 <audio id="remoteAudio" autoplay playsinline></audio>
 <script src="./vendor/qrcode.js"></script>
-<script type="module" src="./app.js"></script>
+<script defer src="./js/00-core.js"></script>
+<script defer src="./js/10-drawers.js"></script>
+<script defer src="./js/20-profile.js"></script>
+<script defer src="./js/30-softphone.js"></script>
+<script defer src="./js/40-feed.js"></script>
+<script defer src="./js/50-browser-pane.js"></script>
+<script defer src="./js/60-render.js"></script>
+<script defer src="./js/70-recap.js"></script>
 </body>
 </html>
