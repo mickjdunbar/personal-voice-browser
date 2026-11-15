@@ -95,6 +95,29 @@ function save() {
   } catch (err) { logger.warn(`tasks load failed: ${err.message}`); }
 })();
 
+// 16 Nov: a restart used to leave an owner message unanswered forever (the turn died with the process).
+// A few seconds after boot, any open thread whose LAST message is the owner's is run again — once per
+// 10 minutes at most, so a crash loop cannot hammer the models. TASKS_RESUME=0 disables it.
+function resumeUnanswered() {
+  if (process.env.TASKS_RESUME === '0') return;
+  const now = Date.now();
+  const due = [...tasks.values()].filter((t) => t.status !== 'done' && t.messages.at(-1)?.role === 'owner' && !(t.resumed_at && now - new Date(t.resumed_at).getTime() < 10 * 60 * 1000));
+  for (const t of due) {
+    const last = t.messages.at(-1);
+    t.resumed_at = new Date(now).toISOString();
+    t.status = 'working'; save(); broadcast(t);
+    logger.info(`task ${t.id}: resuming the owner's unanswered message after restart`);
+    t.running += 1;
+    t.queue = t.queue
+      .then(() => runTurn(t, String(last.text || ''), Array.isArray(last.media) ? last.media : []))
+      .catch((err) => logger.warn(`task ${t.id} resume failed: ${err.message}`))
+      .finally(() => { t.running = Math.max(0, t.running - 1); settleStatus(t); });
+  }
+  if (due.length) logger.info(`resumed ${due.length} unanswered task thread(s)`);
+}
+const resumeTimer = setTimeout(resumeUnanswered, Number(process.env.TASKS_RESUME_DELAY_MS) || 6000);
+if (resumeTimer.unref) resumeTimer.unref();
+
 // --- shapes ----------------------------------------------------------------------
 const sessionOf = (id) => `task-${id}`;
 function publicTask(t) {
@@ -167,6 +190,19 @@ export function createTask({ title, text, via = 'console', contact = null, attac
     if (r.error) { tasks.delete(id); save(); return { error: r.error }; }
   }
   return getTask(id);
+}
+
+/** 16 Nov: a thread that starts with a note FROM Aria (a call recap) — no turn runs; the owner can reply. */
+export function createNoteThread({ title, text, web = true } = {}) {
+  const body = String(text || '').trim();
+  if (!body) return { error: 'empty note' };
+  const id = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  const now = new Date().toISOString();
+  const t = { id, seq: ++seqCounter, title: String(title || '').trim() || body.slice(0, 56), status: 'waiting', created_at: now, updated_at: now, messages: [{ role: 'aria', text: body, at: now, via: 'recap' }], web: Boolean(web), running: 0, queue: Promise.resolve() };
+  tasks.set(id, t);
+  save();
+  emitEvent('tasks.update', null, { task: publicTask(t), created: true, via: 'recap', msg: t.messages[0] });
+  return t;
 }
 
 export function setStatus(id, status) {

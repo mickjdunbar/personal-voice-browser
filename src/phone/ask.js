@@ -9,6 +9,7 @@ import { jambonz } from '../jambonzApi.js';
 import { bus, topic } from '../bus.js';
 import { createLogger } from '../logger.js';
 import { effectiveDial } from './testTarget.js';
+import { dialAllowed, recordDial } from './dialCap.js'; // 16 Nov: sliding-window cap on real dials
 
 const logger = createLogger('PhoneAsk');
 const pending = new Map(); // askId -> { question, name, onBehalfOf, to, startedAt }
@@ -75,6 +76,8 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
   // 13 Nov (take after the hero): the host's leg restarted mid-request and the resumed model fired
   // the same "ring the venue" again — TWO calls to the restaurant, two bookings. A second call to the
   // same number for the same session while the first is still in flight is never what anyone wants.
+  const cap = dialAllowed(sessionId);
+  if (!cap.ok) { logger.warn(`dial cap: ${sessionId} refused (${cap.count} this session / ${cap.total} total in window)`); return { error: cap.error }; }
   const dupe = pendingAsksFor(sessionId).find((a) => a.to === num && Date.now() - a.startedAt < 5 * 60 * 1000);
   if (dupe) {
     logger.warn(`ask call to ${num} already in flight for ${sessionId} (${dupe.askId}) — not dialling again`);
@@ -92,6 +95,7 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
   });
 
   try {
+    recordDial(sessionId);
     await jambonz('POST', `/Accounts/${config.jambonz.accountSid}/Calls`, {
       application_sid: config.jambonz.applicationSid,
       from,

@@ -2,7 +2,7 @@
 # 2026-11-03 (mick-agentic-browser): start the server (Git Bash / Linux / macOS).
 # ngrok is NOT started here: run `npm run tunnel` (ngrok http --url=mick.au.ngrok.io 3005) yourself.
 #
-#   ./start.sh                 # dev mode: node --watch, headed Chromium, port from .env (3005)
+#   ./start.sh                 # dev mode: restart-safe watcher (scripts/dev.mjs), headed Chromium, port from .env (3005)
 #   ./start.sh --once          # no watch (plain node)
 #   ./start.sh --headless      # headless Chromium (sites with bot checks will refuse it)
 #   ./start.sh --port 3006
@@ -83,7 +83,9 @@ if [[ -n "$pid" ]]; then echo "replacing previous instance (pid $pid) on port $P
 export PORT
 [[ -n "$HEADLESS" ]] && export BROWSER_HEADLESS="$HEADLESS"
 mkdir -p logs
-cmd=(node); (( WATCH )) && cmd+=(--watch); cmd+=(src/app.js)
+# 16 Nov: the watcher is scripts/dev.mjs — it defers a restart while a call, an IVR map or a task
+# turn is live (GET /api/busy) instead of killing them the way `node --watch` did.
+if (( WATCH )); then cmd=(node scripts/dev.mjs); else cmd=(node src/app.js); fi
 
 echo "mick-agentic-browser on http://localhost:$PORT  (watch=$WATCH headless=${BROWSER_HEADLESS:-$(env_get BROWSER_HEADLESS)})"
 echo "  console    http://localhost:$PORT"

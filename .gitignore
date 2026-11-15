@@ -13,6 +13,7 @@ public/vendor/
 public/*.apk
 .live-calls.json
 .test-dial.json
+.settings.json
 public/recaps/
 # runtime state and personal data — never published
 .mcp-servers.json

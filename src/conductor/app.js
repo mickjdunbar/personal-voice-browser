@@ -34,6 +34,8 @@ import { textWriter } from '../agent/navigator.js';
 import { HOST, pickSpecialist } from '../agent/team.js';
 import { scoreSentiment, trendOf } from '../sentiment.js';
 import { isChitChat } from '../llm/lanes.js';
+import { foldTranscript, closeLine, noteSpeechStart, noteCommitted, noteTurnComplete } from './transcript.js'; // 16 Nov: pure + tested
+import { ambience as ambienceSettings, changesSince, lastCallAt, markCallStart } from '../settings.js';
 import { refineMood } from '../mood.js';
 import { authorizeUpgrade, rejectUpgrade } from '../wsAuth.js';
 import { getObservability } from '../observability/store.js';
@@ -259,10 +261,15 @@ async function onSession(session) {
   })();
   const claimed = takeClaimedSession(); // consume unconditionally so a stale claim can't bind a later call
   const ownerSession = tag.session || headerSession || claimed || 'main';
+  // 16 Nov: WEB CLIENT = the softphone on the Personal Voice Browser page. It tags its INVITE with
+  // X-Client: pvb-web (and X-Session); that tag — not the "app-" prefix of the dialled number — is what
+  // lets Talk Settings be changed on this call (agent/webClient.js). PSTN and REST-placed calls never carry it.
+  const xClient = (() => { const h = session.data?.sip?.headers; if (!h || typeof h !== 'object') return ''; for (const k of Object.keys(h)) if (k.toLowerCase() === 'x-client') return String(h[k] || '').trim(); return ''; })();
+  const webClient = direction === 'inbound' && mode !== 'ask' && mode !== 'ivrmap' && (xClient === 'pvb-web' || Boolean(headerSession));
   // An ASK call (outbound side-call to a person/IVR) gets its OWN session id: if it shared the
   // owner's, its call.start/call.end and transcript events would corrupt the owner console's
   // in-call state (cost baseline, orb, captions) and collide in session-keyed lookups.
-  const ctl = { callSid, from, to, direction, session, sessionId: mode === 'ask' ? `ask:${callSid}` : mode === 'ivrmap' ? `ivrmap:${callSid}` : ownerSession, ownerSession, mode, lane: null, swaps: 0, startedAt: new Date().toISOString(), startedMs: Date.now(), events: [], transcript: [], swapping: false };
+  const ctl = { callSid, from, to, direction, session, webClient, sessionId: mode === 'ask' ? `ask:${callSid}` : mode === 'ivrmap' ? `ivrmap:${callSid}` : ownerSession, ownerSession, mode, lane: null, swaps: 0, startedAt: new Date().toISOString(), startedMs: Date.now(), events: [], transcript: [], swapping: false };
   calls.set(callSid, ctl);
   // ngrok (and some LBs) silently drop an IDLE control websocket — 10 Nov: two mid-call "socket
   // closed" drops, each re-greeting the caller from scratch and orphaning in-flight work. The
@@ -283,7 +290,13 @@ async function onSession(session) {
     session.hangup().reply();
   });
   if (direction === 'inbound' && mode !== 'ask' && mode !== 'ivrmap') ctl.who = createDetector({ kind: 'inbound', to: from, prior: priorFor(from) }); // 14 Nov: who is CALLING (person or an agent acting for one)
-  emitEvent('call.start', ctl.sessionId, { callSid, from, to, direction, mode: ctl.mode, ownerSession: ctl.ownerSession, startedAt: ctl.startedAt });
+  emitEvent('call.start', ctl.sessionId, { callSid, from, to, direction, mode: ctl.mode, ownerSession: ctl.ownerSession, startedAt: ctl.startedAt, webClient });
+  // 16 Nov: an owner call opens with "what changed in Talk Settings since your last call" (console card).
+  if (mode !== 'ask' && mode !== 'ivrmap') {
+    const since = changesSince(lastCallAt());
+    markCallStart();
+    if (since.length) emitEvent('settings.since_last_call', ctl.sessionId, { callSid, since_ts: lastCallAt(), changes: since.slice(-12) });
+  }
   getObservability().event(ctl.sessionId, 'call.start', { callSid, from, to, direction, mode: ctl.mode }).catch(() => {});
 
   if (ctl.mode === 'ask') { runAskCall(ctl, tag.askId); return; }
@@ -327,11 +340,11 @@ async function onSession(session) {
 function legGain(ctl, base) {
   const n = parseFloat(String(base));
   if (!Number.isFinite(n)) return base;
-  const trim = /^app-/i.test(String(ctl?.to || '')) ? config.ambience.webrtcTrimDb : 0;
+  const trim = (ctl?.webClient || /^app-/i.test(String(ctl?.to || ''))) ? ambienceSettings().webrtcTrimDb : 0;
   return `${Math.round(n + trim)} dB`;
 }
 function dubCmd(ctl, data, why) {
-  if (!config.ambience.enabled) return;
+  if (!ambienceSettings().enabled) return;
   if (data.gain != null) data = { ...data, gain: legGain(ctl, data.gain) };
   try { ctl.session.injectCommand('dub', data); emitEvent('ambience', ctl.sessionId, { callSid: ctl.callSid, action: data.action, track: data.track, why }); }
   catch (err) { logger.warn(`call ${ctl.callSid}: dub ${data.action}/${data.track} failed: ${err.message}`); }
@@ -340,23 +353,23 @@ function startAmbience(ctl) {
   const bed = audioUrl(config.ambience.bedFile);
   const typing = audioUrl(config.ambience.typingFile);
   const hold = audioUrl(config.ambience.holdFile);
-  if (!config.ambience.enabled || !bed) { if (config.ambience.enabled && !bed) logger.warn(`call ${ctl.callSid}: ambience on but PUBLIC_HOST unset — the feature server cannot fetch the audio, skipping`); return; }
+  if (!ambienceSettings().enabled || !bed) { if (ambienceSettings().enabled && !bed) logger.warn(`call ${ctl.callSid}: ambience on but PUBLIC_HOST unset — the feature server cannot fetch the audio, skipping`); return; }
   ctl.ambience = { bed, typing, hold };
   dubCmd(ctl, { action: 'addTrack', track: 'bed' }, 'call start');
   dubCmd(ctl, { action: 'addTrack', track: 'typing' }, 'call start');
   dubCmd(ctl, { action: 'addTrack', track: 'hold' }, 'call start');
-  dubCmd(ctl, { action: 'playOnTrack', track: 'bed', play: bed, loop: true, gain: config.ambience.bedGain }, 'room tone');
+  dubCmd(ctl, { action: 'playOnTrack', track: 'bed', play: bed, loop: true, gain: ambienceSettings().bedGain }, 'room tone');
 }
 /** Typing clatter while a specialist works the browser (on at hand-off, off at hand-back). */
 function workingAudio(ctl, on) {
   if (!ctl?.ambience) return;
-  if (on) dubCmd(ctl, { action: 'playOnTrack', track: 'typing', play: ctl.ambience.typing, loop: true, gain: config.ambience.typingGain }, 'specialist working');
+  if (on) dubCmd(ctl, { action: 'playOnTrack', track: 'typing', play: ctl.ambience.typing, loop: true, gain: ambienceSettings().typingGain }, 'specialist working');
   else dubCmd(ctl, { action: 'silenceTrack', track: 'typing' }, 'handed back');
 }
 /** Warm hold pad on the CALLER's leg for as long as an outbound call runs on their behalf (12 Nov). */
 function holdAudio(ctl, on) {
   if (!ctl?.ambience?.hold) return;
-  if (on) dubCmd(ctl, { action: 'playOnTrack', track: 'hold', play: ctl.ambience.hold, loop: true, gain: config.ambience.holdGain }, 'outbound call in progress');
+  if (on) dubCmd(ctl, { action: 'playOnTrack', track: 'hold', play: ctl.ambience.hold, loop: true, gain: ambienceSettings().holdGain }, 'outbound call in progress');
   else dubCmd(ctl, { action: 'silenceTrack', track: 'hold' }, 'outbound call finished');
 }
 const ownerLegOf = (askCtl) => [...calls.values()].find((c) => c.mode !== 'ask' && c.sessionId === (askCtl.ownerSession || ''));
@@ -799,9 +812,41 @@ function cleanup(ctl, reason = 'closed') {
   recent.unshift({ call_sid: ctl.callSid, mode: ctl.mode, lane: ctl.lane, session: ctl.sessionId, from: ctl.from, to: ctl.to, direction: ctl.direction, started_at: ctl.startedAt, ended_at: Date.now(), ended_after_ms: Date.now() - ctl.startedMs, end_reason: reason, swaps: ctl.swaps, events: ctl.events, transcript: ctl.transcript.slice(-8) });
   if (recent.length > 20) recent.length = 20;
   bus.removeAllListeners(topic(ctl.callSid, 'handback'));
-  emitEvent('call.end', ctl.sessionId, { callSid: ctl.callSid, reason, swaps: ctl.swaps, duration_ms: Date.now() - ctl.startedMs, mode: ctl.mode, ownerSession: ctl.ownerSession });
+  emitEvent('call.end', ctl.sessionId, { callSid: ctl.callSid, reason, swaps: ctl.swaps, duration_ms: Date.now() - ctl.startedMs, mode: ctl.mode, ownerSession: ctl.ownerSession, webClient: Boolean(ctl.webClient) });
+  scheduleCallRecap(ctl, reason);
   getObservability().event(ctl.sessionId, 'call.end', { callSid: ctl.callSid, reason, swaps: ctl.swaps, duration_ms: Date.now() - ctl.startedMs }).catch(() => {});
   logger.info(`call ${ctl.callSid} done (mode=${ctl.mode}, swaps=${ctl.swaps}, ${reason})`);
+}
+
+/** 16 Nov: a WebRTC (web-client) call that actually had a conversation leaves a recap in the Async
+ *  drawer — a thread the owner can reply to ("book that one") with the whole call as context. The
+ *  showcase takes already got an HTML recap; an ordinary call got nothing. Not for ask / map legs,
+ *  and not for a socket drop that jambonz re-dials within the reconnect window (one recap per call). */
+function scheduleCallRecap(ctl, reason) {
+  if (!ctl.webClient || ctl.mode === 'ask' || ctl.mode === 'ivrmap' || process.env.CALL_RECAP_THREAD === '0') return;
+  const lines = ctl.transcript.filter((t) => t && String(t.text || '').trim());
+  if (lines.filter((t) => t.role === 'user').length < 1 || lines.length < 2) return;
+  const wait = reason === 'socket closed' ? 95000 : 2000;
+  setTimeout(async () => {
+    if (calls.has(ctl.callSid)) return; // it reconnected — the call is still going
+    const hhmm = (ms) => new Date(ms || Date.now()).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const body = lines.slice(-60).map((t) => `${hhmm(t.at)} ${t.role === 'assistant' ? HOST.name : 'You'}: ${String(t.text).trim()}`).join('\n');
+    let summary = '';
+    try {
+      summary = await completeText({ model: config.llm.summaryModel, messages: [
+        { role: 'system', content: `Summarise this phone conversation between the owner ("You") and ${HOST.name}, their voice assistant, in two or three short sentences: what was asked, what was found or done, anything still pending. Plain words, no preamble, no bullet points.` },
+        { role: 'user', content: body.slice(-6000) }
+      ], params: { max_tokens: 160 } });
+    } catch (err) { logger.warn(`call ${ctl.callSid}: recap summary failed: ${err.message}`); }
+    const mins = Math.max(1, Math.round((Date.now() - ctl.startedMs - wait) / 60000));
+    const text = `📞 Call recap — ${mins} min, ${lines.length} lines${summary ? `\n\n${String(summary).trim()}` : ''}\n\n${body}`;
+    try {
+      const { createNoteThread } = await import('../tasks/store.js');
+      const t = createNoteThread({ title: `Call recap · ${hhmm(ctl.startedMs)}`, text, web: true });
+      emitEvent('call.recap', ctl.sessionId, { callSid: ctl.callSid, task: t?.id || null, lines: lines.length });
+      logger.info(`call ${ctl.callSid}: recap posted to thread ${t?.id || '?'}`);
+    } catch (err) { logger.warn(`call ${ctl.callSid}: recap thread failed: ${err.message}`); }
+  }, wait);
 }
 
 function onAgentEvent(ctl, evt) {
@@ -815,8 +860,6 @@ function onAgentEvent(ctl, evt) {
 }
 
 /** End the current transcript line of `role`: the next chunk of that role starts a new line. */
-function closeLine(ctl, role) { const last = ctl.transcript.at(-1); if (last && last.role === role) last.closed = true; }
-
 function onS2sEvent(ctl, evt) {
   // jambonz.cloud passes the raw Gemini/OpenAI message through with snake_case keys.
   const t = evt?.type || evt?.event || '';
@@ -832,7 +875,7 @@ function onS2sEvent(ctl, evt) {
   // auto-create a response under server_vad), an injected response.create would kill the leg.
   if (t === 'response.created') ctl.s2sBusy = true;
   // 15 Nov: a response boundary closes Aria's current transcript line (see the folding below).
-  if (t === 'response.done' || evt?.serverContent?.turnComplete || evt?.server_content?.turn_complete) closeLine(ctl, 'assistant');
+  if (t === 'response.done' || evt?.serverContent?.turnComplete || evt?.server_content?.turn_complete) noteTurnComplete(ctl); // closes Aria's line; Gemini's next line gets a new synthetic item
   if (t === 'response.done') {
     ctl.s2sBusy = false;
     meterS2sResponse(ctl, evt);
@@ -850,11 +893,11 @@ function onS2sEvent(ctl, evt) {
     // barge_in row in the feed means the VAD never heard the talk-over at all.
     const barge = t.endsWith('speech_started') && ctl.s2sBusy;
     if (t.endsWith('speech_started') || t.endsWith('committed')) ctl.s2sBusy = true; // a response will follow
-    if (t.endsWith('speech_started')) { ctl.farStartAt = Date.now(); closeLine(ctl, 'user'); }
+    if (t.endsWith('speech_started')) noteSpeechStart(ctl);
     if (t.endsWith('speech_stopped') || t.endsWith('committed')) ctl.lastUserSpeechAt = Date.now();
     // 15 Nov: remember WHEN this utterance started, keyed by the item its transcript will carry —
     // the text transcription lands seconds later, after Aria has already begun answering.
-    if (t.endsWith('committed') && evt?.item_id) { (ctl.itemAt ||= new Map()).set(evt.item_id, ctl.farStartAt || Date.now()); if (ctl.itemAt.size > 50) ctl.itemAt.delete(ctl.itemAt.keys().next().value); }
+    if (t.endsWith('committed')) noteCommitted(ctl, evt?.item_id);
     emitEvent('s2s.vad', ctl.sessionId, { callSid: ctl.callSid, phase: barge ? 'barge_in' : t.split('.')[1] });
     return;
   }
@@ -867,15 +910,8 @@ function onS2sEvent(ctl, evt) {
   // onto her previous line ("…what are we getting up to today?Sure thing, let me check…"). A line
   // is keyed by the provider's item id when there is one and closed at a response/turn boundary
   // (or the next speech start) otherwise; each line carries `at`, the moment it was spoken.
-  const item = evt?.item_id || evt?.item?.id || null;
-  const last = ctl.transcript.at(-1);
-  const newLine = !(last && last.role === role && !last.closed && (!item || !last.item || last.item === item));
-  if (newLine) {
-    const at = role === 'user' ? ((item && ctl.itemAt?.get(item)) || ctl.farStartAt || Date.now()) : Date.now();
-    if (item) ctl.itemAt?.delete(item);
-    ctl.transcript.push({ role, text, item, at });
-  } else last.text += text;
-  const line = ctl.transcript.at(-1), lineNo = ctl.transcript.length - 1;
+  // 16 Nov: the folding itself lives in transcript.js (unit-tested); Gemini gets synthetic item ids there.
+  const { line, lineNo, newLine } = foldTranscript(ctl, { role, text, item: evt?.item_id || evt?.item?.id || null });
   const full = line.text;
   emitEvent('s2s.transcript', ctl.sessionId, { callSid: ctl.callSid, role, delta: text, text: full, item: line.item || null, line: lineNo, at: line.at, agent: role === 'assistant' ? { id: HOST.id, name: HOST.name, color: HOST.color } : null });
   // Score the caller's spoken line so the sentiment chart fills on a voice call too. The
@@ -1127,7 +1163,7 @@ async function runBackgroundBrowse(ctl, { request, context, name, callId, fnId }
   try {
     const nav = await getSession(ctl.sessionId, {
       channel: 'voice', metadata: { worker: true }, // worker:true keeps it single-task (no Lead/liveSay, which needs a cascaded leg)
-      info: { callSid, from: ctl.from, to: ctl.to, direction: ctl.direction, mode: 'background-browse' }
+      info: { callSid, from: ctl.from, to: ctl.to, direction: ctl.direction, mode: 'background-browse', webClient: Boolean(ctl.webClient) }
     });
     // Async results (e.g. a phone-a-person answer that lands after this turn) are relayed to Aria so she
     // speaks them in her own voice — NOT on a cascaded leg. onPhoneAnswer calls nav.liveSay(answer).

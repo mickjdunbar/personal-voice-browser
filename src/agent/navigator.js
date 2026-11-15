@@ -31,9 +31,12 @@ import { HOST, pickSpecialist } from './team.js';
 import { Lead } from './lead.js';
 import { renderContext, appendContext, getContext } from '../context.js';
 import { currentTimeLine } from '../clock.js';
-import { chatBotTools, askChatBot, setBots, publicBots, findBot } from '../chat/bots.js';
+import { chatBotTools, askChatBot, setBots, publicBots, findBot, snapshotBots, restoreBots } from '../chat/bots.js';
+import { isWebClient } from './webClient.js';
+import { confirmGate } from './confirmGate.js'; // 16 Nov: destructive settings actions need a REAL second turn
+import { getSettings, updateSettings, snapshotOverrides, restoreOverrides, LANGUAGES } from '../settings.js';
 import { providerMeta } from '../chat/providers.js';
-import { mcpTools, mcpCapabilityText, zapierGatewayPresent, ZAPIER_RECIPE, setServers, publicServers, findServer, presetMeta } from '../mcp/servers.js';
+import { mcpTools, mcpCapabilityText, zapierGatewayPresent, ZAPIER_RECIPE, setServers, publicServers, findServer, presetMeta, snapshotServers, restoreServers } from '../mcp/servers.js';
 import { listMcpTools, callMcpTool, probeServer } from '../mcp/client.js';
 import { placeAskCall, checkAskTarget } from '../phone/ask.js';
 import { getTestTarget, setTestTarget } from '../phone/testTarget.js';
@@ -116,8 +119,13 @@ const RESUME_IVR_MAP_TOOL = { type: 'function', function: { name: 'resume_ivr_ma
 // 15 Nov: Aria configures the Personal Voice Browser's own Talk Settings — but ONLY for an owner on
 // the web client (console text, a WebRTC call from the page, or a task thread opened from it). A
 // caller on a phone line or over WhatsApp/SMS can list, never change (fromWebClient()).
-const TALK_SETTINGS_TOOL = { type: 'function', function: { name: 'talk_settings', description: 'Read or change this Personal Voice Browser\'s own Talk Settings: the external CHATBOTS you can message with ask_chatbot (REST endpoints — e.g. a Cognigy REST endpoint URL, Dialogflow CX, Vertex / CX Agent Studio, ElevenLabs), the MCP SERVERS whose tools the team can use, and the TEST-DIAL redirect for outbound calls. CHANGES ARE ALLOWED ONLY WHEN THE OWNER IS ON THE WEB CLIENT (the Personal Voice Browser page in a browser, a WebRTC call from it, or a task thread opened from it) — never from a phone line or a WhatsApp/SMS message: the tool refuses then; tell them so and that they can do it from the page. action=list needs nothing (allowed anywhere) — USE IT whenever the caller asks what chatbots, REST endpoints, MCP servers or MCP tools are available / set up / connected, and read back the names (chatbots by name + provider; MCP servers by name + how many tools) in plain words. add_chatbot needs name + url (plus provider, api_key, model, reply_path, headers_json, body_json when given) — it is saved, then probed with a hello so you can report what it replied. add_mcp_server needs name + url (plus auth none|bearer|header, api_key, header_name, allow) — it is probed first and saved only if it answers; report its tools. remove_chatbot / remove_mcp_server need id (or the name). test_dial needs enabled (+ number when turning it on). Always confirm the result in plain words (names and ids, never keys). Do the change yourself right away when asked — no need to hand it off.', parameters: { type: 'object', properties: {
-  action: { type: 'string', enum: ['list', 'add_chatbot', 'remove_chatbot', 'add_mcp_server', 'remove_mcp_server', 'test_dial'] },
+// 16 Nov: the last Talk Settings changes made by Aria (any session), newest last — talk_settings undo_last.
+const UNDO = [];
+const TALK_SETTINGS_TOOL = { type: 'function', function: { name: 'talk_settings', description: 'Read or change this Personal Voice Browser\'s own Talk Settings: the external CHATBOTS you can message with ask_chatbot (REST endpoints — e.g. a Cognigy REST endpoint URL, Dialogflow CX, Vertex / CX Agent Studio, ElevenLabs), the MCP SERVERS whose tools the team can use, and the TEST-DIAL redirect for outbound calls. CHANGES ARE ALLOWED ONLY WHEN THE OWNER IS ON THE WEB CLIENT (the Personal Voice Browser page in a browser, a WebRTC call from it, or a task thread opened from it) — never from a phone line or a WhatsApp/SMS message: the tool refuses then; tell them so and that they can do it from the page. action=list needs nothing (allowed anywhere) — USE IT whenever the caller asks what chatbots, REST endpoints, MCP servers or MCP tools are available / set up / connected, and read back the names (chatbots by name + provider; MCP servers by name + how many tools) in plain words. add_chatbot needs name + url (plus provider, api_key, model, reply_path, headers_json, body_json when given) — it is saved, then probed with a hello so you can report what it replied. add_mcp_server needs name + url (plus auth none|bearer|header, api_key, header_name, allow) — it is probed first and saved only if it answers; report its tools. remove_chatbot / remove_mcp_server need id (or the name). test_dial needs enabled (+ number when turning it on). set_ambience changes the background sound mix: RELATIVE with by_db (negative = quieter: "turn the background noise down a bit" → by_db: -6; "a lot" → -12; "up a touch" → +3 — this is what you want nearly always), or ABSOLUTE with bed_db / typing_db / hold_db (decibels, −60…0 — the current values are in list) and webrtc_trim_db (−30…6, the extra trim on web calls); ambience_enabled turns it off/on altogether. set_language sets the call language (language = a code like en-AU, en-GB, fr-FR) for the NEXT call. undo_last reverts the most recent change made with this tool — the undo stack is SHARED across every thread and call, so when the owner asks to undo, ALWAYS call it (never guess there is nothing to undo; the result tells you). DESTRUCTIVE ACTIONS ARE TWO-STEP: removing a chatbot or an MCP server, and turning the test-dial redirect OFF (real numbers would ring). The first call NEVER does it — it returns needs_confirmation; you read back exactly what will change and ask the owner. Only on the owner\'s NEXT message, if it is a clear yes, call the same action again and it goes through. Adds and tweaks happen at once. Always confirm the result in plain words (names and ids, never keys). Do the change yourself right away when asked — no need to hand it off.', parameters: { type: 'object', properties: {
+  action: { type: 'string', enum: ['list', 'add_chatbot', 'remove_chatbot', 'add_mcp_server', 'remove_mcp_server', 'test_dial', 'set_ambience', 'set_language', 'undo_last'] },
+  by_db: { type: 'number', description: 'set_ambience: RELATIVE change applied to all three tracks, e.g. -6 for "a bit quieter".' },
+  ambience_enabled: { type: 'boolean' }, bed_db: { type: 'number' }, typing_db: { type: 'number' }, hold_db: { type: 'number' }, webrtc_trim_db: { type: 'number' },
+  language: { type: 'string', description: 'set_language: a BCP-47 code such as en-AU, en-GB, en-US, fr-FR, de-DE, es-ES, pt-BR, ja-JP.' },
   id: { type: 'string', description: 'For remove_*: the id (or name) of the chatbot / server. For add_*: optional explicit id.' },
   name: { type: 'string' }, url: { type: 'string' },
   provider: { type: 'string', description: 'Chatbot provider id, e.g. cognigy (default), dialogflow_cx, vertex_agent, elevenlabs, generic — see list.' },
@@ -489,6 +497,7 @@ export class Navigator {
     special.push(TALK_SETTINGS_TOOL); // 15 Nov: listing anywhere; changes gated inside (web client only)
     if (!this.metadata.task) special.push(CREATE_TASK_TOOL); // no tasks spawning tasks
     else special.push(SHARE_SCREENSHOT_TOOL, SHARE_SKETCH_TOOL); // task threads can carry images
+    const specialNames = new Set([...special.map((t) => t.function.name), 'ask_chatbot', 'remember_about_caller']); // ask_chatbot/remember come from chatBotTools/REMEMBER_TOOL pushes below
     const botTools = chatBotTools();
     const mcp = mcpTools();
     let tools = lane === 'deep'
@@ -593,7 +602,9 @@ export class Navigator {
         let result;
         this.emit('tool.call', { turn: this.turns, name: c.name, args: c.args });
         // Special non-browser tools: note a caller fact, message an external chatbot, or phone a person.
-        if (c.name === 'talk_settings' || c.name === 'remember_about_caller' || c.name === 'ask_chatbot' || c.name === 'phone_someone' || c.name === 'map_ivr' || c.name === 'create_task' || c.name === 'share_screenshot' || c.name === 'share_sketch' || c.name === 'list_mcp_tools' || c.name === 'use_mcp_tool') {
+        // 16 Nov: the gate is the special-tool list itself (plus the MCP pair, which live in externalTools) —
+        // a hard-coded name chain here silently turned talk_settings into "unknown tool" on 15 Nov.
+        if (specialNames.has(c.name) || c.name === 'list_mcp_tools' || c.name === 'use_mcp_tool') {
           if (c.name === 'ask_chatbot' && !this.metadata.task && Date.now() - lastSpokenAt > 1200) { writer.write(pickFiller('chatbot')); lastSpokenAt = Date.now(); } // 15 Nov: no spoken filler in a written task thread
           // Confirm the call BEFORE it is placed — but only if the model didn't already narrate it
           // (it usually says "I'm ringing X now" in this same message). A second hardcoded line on top
@@ -646,25 +657,26 @@ export class Navigator {
    * task thread that was opened from the console (tasks/store sets metadata.webOwner per turn).
    * False for a phone line (PSTN from/to), WhatsApp/SMS threads and Lead worker sub-sessions.
    */
-  fromWebClient() {
-    if (this.metadata?.task) return Boolean(this.metadata.webOwner);
-    const info = this.info || {};
-    if (this.channel === 'voice' || this.channel === 'specialist') return /^app-/i.test(String(info.to || ''));
-    return info.channel === 'text' || info.channel === 'boot';
-  }
+  fromWebClient() { return isWebClient({ channel: this.channel, info: this.info, metadata: this.metadata }); } // 16 Nov: pure + tested (agent/webClient.js)
 
-  /** The talk_settings tool: list anywhere; add/remove/test-dial only from the web client. */
+  /** The talk_settings tool: list anywhere; changes only from the web client; destructive ones confirmed first. */
   async talkSettings(args = {}) {
     const action = String(args.action || 'list');
     const sid = this.metadata?.task ? 'main' : String(this.sessionId).split('#')[0]; // test-dial is per console session
-    const view = () => ({
-      chatbots: publicBots().map((b) => ({ id: b.id, name: b.name, provider: b.provider, url: b.url, has_key: b.hasKey, model: b.model || undefined })),
-      mcp_servers: publicServers().map((s) => ({ id: s.id, name: s.name, url: s.url, auth: s.auth, has_key: s.hasKey, tools: s.toolCount, allow: s.allow })),
-      test_dial: getTestTarget(sid),
-      chatbot_providers: providerMeta().map((p) => `${p.id} = ${p.label}`),
-      mcp_presets: presetMeta().map((p) => p.id || p.name).filter(Boolean),
-      note: 'The SIP softphone fields (wss / realm / user / password) live only in the browser — the owner sets those by hand in Talk Settings.'
-    });
+    const view = () => {
+      const s = getSettings();
+      return {
+        chatbots: publicBots().map((b) => ({ id: b.id, name: b.name, provider: b.provider, url: b.url, has_key: b.hasKey, model: b.model || undefined })),
+        mcp_servers: publicServers().map((x) => ({ id: x.id, name: x.name, url: x.url, auth: x.auth, has_key: x.hasKey, tools: x.toolCount, allow: x.allow })),
+        test_dial: getTestTarget(sid),
+        ambience: { enabled: s.ambience.enabled, bed_db: s.ambience.bedDb, typing_db: s.ambience.typingDb, hold_db: s.ambience.holdDb, webrtc_trim_db: s.ambience.webrtcTrimDb },
+        language: { code: s.language.code, name: LANGUAGES[s.language.code] || s.language.code, note: 'applies from the next call' },
+        chatbot_providers: providerMeta().map((p) => `${p.id} = ${p.label}`),
+        mcp_presets: presetMeta().map((p) => p.id || p.name).filter(Boolean),
+        can_undo: UNDO.length ? UNDO.at(-1).label : null,
+        note: 'The SIP softphone fields (wss / realm / user / password) live only in the browser — the owner sets those by hand in Talk Settings.'
+      };
+    };
     if (action === 'list') return { ok: true, ...view() };
     if (!this.fromWebClient()) {
       this.emit('settings.refused', { action, why: 'not the web client' });
@@ -672,51 +684,96 @@ export class Navigator {
     }
     const parseJson = (s, what) => { if (!s) return undefined; try { const o = JSON.parse(s); return o && typeof o === 'object' ? o : undefined; } catch { throw new Error(`${what} is not valid JSON`); } };
     const clean = (s) => String(s || '').trim();
+    // 16 Nov: destructive actions are read back and confirmed before they happen. The gate is STATEFUL
+    // (confirmGate): the same target only goes through on a later owner turn — a `confirm:true` flag
+    // was passed by the model on its very first call, so the flag is gone.
+    const needsYes = (what) => { const g = confirmGate(this, `${action}:${what}`, this.turns); return g.ok ? null : { needs_confirmation: true, action, target: what, say: `Nothing has changed yet. Read back exactly what will change — "${what}" — and ask the owner to confirm. If their NEXT message is a clear yes, call this same action again and it will go through; if they hesitate or say no, leave it as it is.` }; };
+    const remember = (what, label, restore) => { UNDO.push({ what, label, restore, at: Date.now() }); if (UNDO.length > 10) UNDO.shift(); };
+    const changed = (what, extra) => this.emit('settings.changed', { what, action, by: 'aria', ...extra });
     try {
+      if (action === 'undo_last') {
+        const u = UNDO.pop();
+        if (!u) return { error: 'nothing to undo — no Talk Settings change has been made with this tool since the server started' };
+        await u.restore();
+        changed(u.what, { action: 'undo', name: `undid: ${u.label}` });
+        return { ok: true, undone: u.label, ...view() };
+      }
       if (action === 'add_chatbot') {
         if (!clean(args.name) || !/^https?:\/\//i.test(clean(args.url))) return { error: 'add_chatbot needs a name and an http(s) url' };
         const bot = { id: clean(args.id) || undefined, name: clean(args.name), provider: clean(args.provider) || 'cognigy', url: clean(args.url), apiKey: clean(args.api_key) || '', model: clean(args.model) || undefined, replyPath: clean(args.reply_path) || undefined, headers: parseJson(args.headers_json, 'headers_json'), bodyTemplate: parseJson(args.body_json, 'body_json') };
+        const snap = snapshotBots();
         const others = publicBots().filter((b) => b.id !== bot.id && b.name.toLowerCase() !== bot.name.toLowerCase());
         setBots([...others, bot]); // the console's redacted list keeps existing secrets (normalize)
         const saved = findBot(bot.id || bot.name);
-        this.emit('settings.changed', { what: 'bots', action, id: saved?.id, name: saved?.name });
+        remember('bots', `add chatbot ${saved?.name || bot.name}`, () => restoreBots(snap));
+        changed('bots', { id: saved?.id, name: saved?.name });
         // Probe it once so the owner hears whether it actually answers.
         const r = saved ? await askChatBot(saved.id, `${this.sessionId}#probe`, 'hello').catch((err) => ({ error: err.message })) : { error: 'not saved' };
-        return { ok: true, saved: saved ? { id: saved.id, name: saved.name, provider: saved.provider, url: saved.url } : null, probe: r.error ? { ok: false, error: r.error } : { ok: true, reply: String(r.reply || '').slice(0, 300), ms: r.ms }, chatbots: view().chatbots, note: 'It is now in Talk Settings → Chatbots and usable with ask_chatbot right away.' };
+        return { ok: true, saved: saved ? { id: saved.id, name: saved.name, provider: saved.provider, url: saved.url } : null, probe: r.error ? { ok: false, error: r.error } : { ok: true, reply: String(r.reply || '').slice(0, 300), ms: r.ms }, chatbots: view().chatbots, note: 'It is now in Talk Settings → Chatbots and usable with ask_chatbot right away. Say "undo" to revert.' };
       }
       if (action === 'remove_chatbot') {
         const b = findBot(clean(args.id) || clean(args.name));
         if (!b) return { error: `no chatbot "${clean(args.id) || clean(args.name)}" — see list` };
+        const ask = needsYes(`remove the chatbot ${b.name}`); if (ask) return ask;
+        const snap = snapshotBots();
         setBots(publicBots().filter((x) => x.id !== b.id));
-        this.emit('settings.changed', { what: 'bots', action, id: b.id, name: b.name });
-        return { ok: true, removed: { id: b.id, name: b.name }, chatbots: view().chatbots };
+        remember('bots', `remove chatbot ${b.name}`, () => restoreBots(snap));
+        changed('bots', { id: b.id, name: b.name });
+        return { ok: true, removed: { id: b.id, name: b.name }, chatbots: view().chatbots, note: 'Say "undo" to bring it back.' };
       }
       if (action === 'add_mcp_server') {
         if (!clean(args.name) || !/^https?:\/\//i.test(clean(args.url))) return { error: 'add_mcp_server needs a name and an http(s) url' };
         const srv = { id: clean(args.id) || undefined, name: clean(args.name), url: clean(args.url), auth: ['none', 'bearer', 'header'].includes(clean(args.auth)) ? clean(args.auth) : (clean(args.api_key) ? 'bearer' : 'none'), apiKey: clean(args.api_key) || '', headerName: clean(args.header_name) || undefined, headers: parseJson(args.headers_json, 'headers_json'), allow: clean(args.allow) || undefined };
         const probe = await probeServer(srv);
         if (probe?.error) return { error: `the server did not answer as an MCP server (${probe.error}) — not saved. Check the URL / auth with the owner.`, not_saved: true };
+        const snap = snapshotServers();
         const others = publicServers().filter((s) => s.id !== srv.id && s.name.toLowerCase() !== srv.name.toLowerCase());
         setServers([...others, srv]);
         const saved = findServer(srv.id || srv.name);
-        this.emit('settings.changed', { what: 'mcp', action, id: saved?.id, name: saved?.name, tools: (probe.tools || []).length });
-        return { ok: true, saved: saved ? { id: saved.id, name: saved.name, url: saved.url, auth: saved.auth } : null, tools: (probe.tools || []).slice(0, 40).map((t) => t.name), server_info: probe.serverInfo || undefined, mcp_servers: view().mcp_servers, note: 'It is now in Talk Settings → MCP servers; use list_mcp_tools / use_mcp_tool from the next turn.' };
+        remember('mcp', `add MCP server ${saved?.name || srv.name}`, () => restoreServers(snap));
+        changed('mcp', { id: saved?.id, name: saved?.name, tools: (probe.tools || []).length });
+        return { ok: true, saved: saved ? { id: saved.id, name: saved.name, url: saved.url, auth: saved.auth } : null, tools: (probe.tools || []).slice(0, 40).map((t) => t.name), server_info: probe.serverInfo || undefined, mcp_servers: view().mcp_servers, note: 'It is now in Talk Settings → MCP servers; use list_mcp_tools / use_mcp_tool from the next turn. Say "undo" to revert.' };
       }
       if (action === 'remove_mcp_server') {
         const s = findServer(clean(args.id) || clean(args.name));
         if (!s) return { error: `no MCP server "${clean(args.id) || clean(args.name)}" — see list` };
+        const ask = needsYes(`remove the MCP server ${s.name}`); if (ask) return ask;
+        const snap = snapshotServers();
         setServers(publicServers().filter((x) => x.id !== s.id));
-        this.emit('settings.changed', { what: 'mcp', action, id: s.id, name: s.name });
-        return { ok: true, removed: { id: s.id, name: s.name }, mcp_servers: view().mcp_servers };
+        remember('mcp', `remove MCP server ${s.name}`, () => restoreServers(snap));
+        changed('mcp', { id: s.id, name: s.name });
+        return { ok: true, removed: { id: s.id, name: s.name }, mcp_servers: view().mcp_servers, note: 'Say "undo" to bring it back.' };
       }
       if (action === 'test_dial') {
         const cur = getTestTarget(sid);
         const enabled = typeof args.enabled === 'boolean' ? args.enabled : cur.enabled;
         const number = clean(args.number).replace(/[^\d+]/g, '') || cur.number || '';
         if (enabled && number.replace(/\D/g, '').length < 5) return { error: 'turning test-dial ON needs a valid number to redirect calls to' };
+        if (!enabled && cur.enabled) { const ask = needsYes('turn the test-dial redirect OFF — outbound calls will ring the REAL numbers'); if (ask) return ask; }
+        const prev = { enabled: cur.enabled, number: cur.number };
         const t = setTestTarget(sid, { enabled, number });
-        this.emit('settings.changed', { what: 'test_dial', action, enabled: t.enabled, number: t.number });
+        remember('test_dial', `test-dial ${t.enabled ? 'on' : 'off'}`, () => setTestTarget(sid, prev));
+        changed('test_dial', { enabled: t.enabled, number: t.number });
         return { ok: true, test_dial: t, note: t.enabled ? `every outbound call from this console now rings ${t.number} instead of the real number` : 'outbound calls go to their real numbers' };
+      }
+      if (action === 'set_ambience') {
+        const snap = snapshotOverrides();
+        const cur = getSettings().ambience;
+        const by = Number.isFinite(Number(args.by_db)) && args.by_db !== null && args.by_db !== '' ? Number(args.by_db) : null; // relative: "down a bit" = -6 on every track
+        const abs = (k, v) => (v == null || v === '' ? (by == null ? undefined : cur[k] + by) : v);
+        const r = updateSettings({ ambience: { enabled: typeof args.ambience_enabled === 'boolean' ? args.ambience_enabled : undefined, bedDb: abs('bedDb', args.bed_db), typingDb: abs('typingDb', args.typing_db), holdDb: abs('holdDb', args.hold_db), webrtcTrimDb: args.webrtc_trim_db } }, { by: 'aria' });
+        if (!r.changed.length) return { ok: true, unchanged: true, ambience: view().ambience, note: 'nothing to change — those are the current values' };
+        remember('ambience', `ambience ${r.changed.map((c) => `${c.field.split('.').pop()} ${c.from}→${c.to}`).join(', ')}`, () => restoreOverrides(snap));
+        changed('ambience', { changes: r.changed, name: r.changed.map((c) => `${c.field.split('.').pop()} → ${c.to}`).join(', ') });
+        return { ok: true, ambience: view().ambience, changed: r.changed, note: 'Applies from the NEXT call (the mix is sent at call start). Say "undo" to revert.' };
+      }
+      if (action === 'set_language') {
+        const snap = snapshotOverrides();
+        const r = updateSettings({ language: { code: args.language } }, { by: 'aria' });
+        if (!r.changed.length) return { ok: true, unchanged: true, language: view().language };
+        remember('language', `language → ${r.changed[0].to}`, () => restoreOverrides(snap));
+        changed('language', { changes: r.changed, name: `language → ${r.changed[0].to}` });
+        return { ok: true, language: view().language, note: 'Applies from the NEXT call. Say "undo" to revert.' };
       }
       return { error: `unknown action ${action}` };
     } catch (err) { return { error: err.message }; }

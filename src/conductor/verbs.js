@@ -10,7 +10,8 @@ import { config, harnessUrl } from '../config.js';
 import { S2S_PERSONA } from '../agent/persona.js';
 import { HOST } from '../agent/team.js';
 import { currentTimeLine } from '../clock.js';
-import { isChitChat } from '../llm/lanes.js';
+import { openingPlan } from './greetings.js'; // 16 Nov: named greeting cases (was a string ternary)
+import { language } from '../settings.js';
 
 export const BROWSE_TOOL_NAME = 'browse_for_caller';
 export const TASK_TOOL_NAME = 'start_background_task'; // 13 Nov: long-running jobs, started instantly by the host
@@ -72,7 +73,7 @@ export function taskToolDeclaration() {
 }
 
 export function s2sInstructions({ resume } = {}) {
-  const base = [S2S_PERSONA()];
+  const base = [S2S_PERSONA(HOST.name, language().name)];
   base.push('BACKGROUND JOBS: anything the caller wants done AFTER the call or without waiting ("while I\'m off the phone", "later", "message me / WhatsApp me the answer", "look into it and let me know") goes to the start_background_task tool at once — never browse_for_caller, never done live. Say in ONE line that it\'s underway and will reach them on WhatsApp, then carry on. Never say WhatsApp or messaging is not connected: delivery is automatic. BUT a text they want NOW ("text me that location / the link / the forecast") is browse_for_caller — it is sent on the spot and you confirm "sent" when the result comes back.');
   base.push('NEVER CLAIM AN OUTCOME YOU HAVE NOT BEEN GIVEN: you cannot confirm, book, check or arrange anything with a third party yourself — your team does that and the result reaches you as a message. Until that message arrives, the only truthful thing to say is that they are on it ("they\'re ringing them now"). Never say "confirmed", "booked", "done" or "all set" about a call or a booking before you have the outcome in hand.');
   base.push('EMPTY TURNS: if the caller\'s turn is just a stray word, a cough, background noise or nothing at all, do not answer it — produce no words, or at most a soft "mm-hm". Never fill it with reassurance.');
@@ -97,20 +98,13 @@ export function s2sInstructions({ resume } = {}) {
 export function s2sVerb({ resume, transcript, callerContext, opening } = {}) {
   const instructions = s2sInstructions({ resume }) + '\n\n' + currentTimeLine();
   const ctxNote = callerContext ? `\n\nABOUT THE CALLER (personalize naturally — never read it back or say you have notes on them):\n${callerContext}` : '';
-  // 15 Nov: a typed "hello" / "hi" / "how are you" is NOT a request — before this Aria "dived right
-  // in" and browsed for "hello". Only an opening with something to do triggers the tool.
-  const justHello = Boolean(opening) && isChitChat(opening);
-  // 15 Nov: `response.create.instructions` REPLACES the session instructions for that one response,
-  // so the opening greeting never saw S2S_PERSONA's "Speak Australian English" and gpt-realtime opened
-  // in Portuguese ("Oi, beleza? Bora lá…") to an English caller. Pin it on every greeting variant.
-  const LANG_PIN = 'LANGUAGE: English only — relaxed Australian English (the caller is English-speaking). ';
-  const openNote = !opening ? '' : justHello
-    ? `\n\nTHE CALLER'S FIRST MESSAGE (they typed this to start the call): "${opening}". That is just a hello, not a request: greet them back warmly in one short line and ask what's up. Do NOT call any tool until they ask for something.`
-    : `\n\nTHE CALLER'S FIRST MESSAGE (they typed this to start the call): "${opening}". Open by greeting them warmly and briefly and showing you're onto THIS, then IMMEDIATELY call browse_for_caller with it. Do not ask what they'd like to do — they've told you.`;
-  const openingGreeting = LANG_PIN + (opening ? (justHello
-    ? `The caller opened by typing: "${opening}" — just a hello. Say hi back like a mate — casual, one short line (you're ${HOST.name}; use their name if you know it) — and ask what they're after. Do NOT call any tool yet.`
-    : `The caller opened by typing: "${opening}". Greet them like a mate — casual, playful, first-name basis (you're ${HOST.name}; use their name if you know it) — show you're onto it, and IMMEDIATELY call browse_for_caller with that request — do NOT ask what they want.`)
-    : `Greet the caller like a mate you're happy to hear from — casual and playful ("Hey hey!", "G'day!"), say you're ${HOST.name}, and ask what they're up to in a relaxed way ("what are we getting up to today?", "what's the plan?"). NEVER stiff service lines like "How can I be of service" or "How may I assist you today".`);
+  // 16 Nov: the opening is one of four named cases (greetings.js): resume / typed hello / typed request /
+  // cold call — each prefixed with the language pin, because the per-response instructions REPLACE the
+  // session instructions and the persona's language rule never reaches the greeting.
+  const lang = language();
+  const plan = openingPlan({ opening, resume, hostName: HOST.name, langPin: lang.pin });
+  const openNote = plan.openNote;
+  const openingGreeting = plan.greeting;
   // The google path threads the transcript via setup below; the openai path needs it in the
   // instructions, or a reconnect resume starts with amnesia.
   const transcriptNote = Array.isArray(transcript) && transcript.length
@@ -135,14 +129,14 @@ export function s2sVerb({ resume, transcript, callerContext, opening } = {}) {
           modalities: ['text', 'audio'],
           voice: config.s2s.voice,
           output_audio_format: fmt,
-          instructions: resume ? LANG_PIN + 'Pick the conversation back up in one short warm sentence.' : openingGreeting
+          instructions: openingGreeting
         },
         session_update: {
           instructions: instructions + ctxNote + openNote + transcriptNote,
           voice: config.s2s.voice,
           input_audio_format: fmt,
           output_audio_format: fmt,
-          input_audio_transcription: { model: 'whisper-1', language: 'en' },
+          input_audio_transcription: { model: 'whisper-1', language: lang.short }, // 16 Nov: follows Talk Settings → language
           // Barge-in tuning: 0.5/500 was too hair-trigger — echo and room noise kept cancelling the
           // model's own audio mid-sentence (lots of interruptions / unfinished speech). Higher
           // threshold = needs clearer speech to count as a barge-in; longer silence = fewer false
@@ -166,7 +160,7 @@ export function s2sVerb({ resume, transcript, callerContext, opening } = {}) {
     };
   }
   const setup = {
-    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: config.s2s.voice } } } },
+    generationConfig: { responseModalities: ['AUDIO'], speechConfig: { languageCode: lang.code, voiceConfig: { prebuiltVoiceConfig: { voiceName: config.s2s.voice } } } }, // 16 Nov: languageCode pins Gemini's speech language
     systemInstruction: { parts: [{ text: instructions + ctxNote + openNote }] },
     tools: [{ functionDeclarations: [browseToolDeclaration(), taskToolDeclaration()] }],
     realtimeInputConfig: { automaticActivityDetection: { prefixPaddingMs: 60, silenceDurationMs: 500 } },
@@ -186,9 +180,7 @@ export function s2sVerb({ resume, transcript, callerContext, opening } = {}) {
     events: ['llm_event', 'error', 'session.*'],
     llmOptions: {
       setup,
-      greeting: resume
-        ? 'Pick the conversation back up in one short, warm sentence. Do not greet again.'
-        : openingGreeting
+      greeting: openingGreeting
     },
     ...common
   };

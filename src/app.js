@@ -42,7 +42,9 @@ import { executeBrowserTool } from './browser/tools.js';
 import { getBrowser } from './browser/browser.js';
 import { getStore } from './kb/store.js';
 import { getObservability } from './observability/store.js';
-import { subscribe, recentEvents, clearRecent, emitEvent } from './events.js';
+import { subscribe, recentEvents, clearRecent, emitEvent, readEventLog, eventLogDays } from './events.js';
+import { getSettings, updateSettings, resetSettings, recordChange, LANGUAGES } from './settings.js'; // 16 Nov: ambience + language at runtime
+import { dialCounts } from './phone/dialCap.js';
 import { roster } from './agent/team.js';
 import { appLogger as logger } from './logger.js';
 
@@ -207,6 +209,8 @@ const server = http.createServer(async (req, res) => {
         test_dial: (() => { const t = getTestTarget('main'); return { enabled: t.enabled, number: t.number ? `${t.number.slice(0, 4)}…${t.number.slice(-3)}` : '' }; })(),
         jambonz_applications: lastRegistration,
         live_calls: { harness: harness.calls.size, conductor: liveConductorCalls().length },
+        dials_last_10min: dialCounts(), // 16 Nov: outbound-dial cap counters per session
+        settings: (() => { const s = getSettings(); return { language: s.language.code, ambience: s.ambience }; })(),
         // Open consoles per session — the auto-recap is built BY a console, so a run with none
         // attached (a scripted test) gets no recap unless the launcher opens one.
         consoles: [...uiClients].reduce((m, c) => { m[c.sessionId] = (m[c.sessionId] || 0) + 1; return m; }, {}),
@@ -362,7 +366,36 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && p === '/api/kb/docs') { const b = await readJson(req); const r = await store.saveDoc({ ...(b || {}), by: String(b?.by || 'console') }); return json(res, r.error ? 400 : 200, r); }
     if (req.method === 'DELETE' && p === '/api/kb/docs') { const r = await store.removeDoc(url.searchParams.get('kind') || '', url.searchParams.get('id') || ''); return json(res, r.error ? 400 : 200, r); }
     if (req.method === 'GET' && p === '/api/observability') { const id = url.searchParams.get('session'); if (id) return json(res, 200, { session: id, turns: await obs.turns(id) }); return json(res, 200, { backend: obs.backend, health: await obs.health(), daily: await obs.daily(), sessions: await obs.recentSessions(20) }); }
-    if (req.method === 'GET' && p === '/api/events') return json(res, 200, { events: recentEvents().filter((e) => e.type !== 'browser.frame') });
+    if (req.method === 'GET' && p === '/api/events') {
+      // 16 Nov: ?day=YYYY-MM-DD reads the persisted log (plus session=, type=a,b, since=ISO, limit=); no day = the live ring.
+      const day = url.searchParams.get('day');
+      if (day) return json(res, 200, { day, events: readEventLog({ day, session: url.searchParams.get('session') || '', type: url.searchParams.get('type') || '', since: url.searchParams.get('since') || '', limit: Number(url.searchParams.get('limit')) || 2000 }) });
+      return json(res, 200, { events: recentEvents().filter((e) => e.type !== 'browser.frame') });
+    }
+    if (req.method === 'GET' && p === '/api/events/days') return json(res, 200, { days: eventLogDays() });
+    // 16 Nov: runtime settings (ambience mix, call language) — the Talk Settings drawer and Aria both edit these.
+    if (p === '/api/settings') {
+      if (req.method === 'GET') return json(res, 200, { ...getSettings(), languages: LANGUAGES });
+      if (req.method === 'PUT' || req.method === 'POST') {
+        const b = await readJson(req);
+        try {
+          const r = updateSettings(b || {}, { by: 'console' });
+          if (r.changed.length) emitEvent('settings.changed', null, { what: r.changed.some((c) => c.field.startsWith('language')) ? 'language' : 'ambience', action: 'set', by: 'console', changes: r.changed, name: r.changed.map((c) => `${c.field.split('.').pop()} → ${c.to}`).join(', ') });
+          return json(res, 200, { ...r.settings, changed: r.changed, languages: LANGUAGES });
+        } catch (err) { return json(res, 400, { error: err.message }); }
+      }
+      if (req.method === 'DELETE') { const r = resetSettings({ by: 'console' }); emitEvent('settings.changed', null, { what: 'ambience', action: 'reset', by: 'console', name: 'back to .env defaults' }); return json(res, 200, { ...r.settings, languages: LANGUAGES }); }
+    }
+    // 16 Nov: is anything live that a restart would kill? scripts/dev.mjs defers restarts while this says busy.
+    if (req.method === 'GET' && p === '/api/busy') {
+      const reasons = [];
+      if (harness.calls.size) reasons.push(`${harness.calls.size} harness call(s)`);
+      const live = liveConductorCalls().length; if (live) reasons.push(`${live} live call(s)`);
+      const maps = listIvrMaps().filter((m) => m.status === 'running').length; if (maps) reasons.push(`${maps} IVR map(s) running`);
+      // A turn that has shown no sign of life for 10 min is wedged, not busy — never let it block a restart forever.
+      const working = listTasks().filter((t) => t.status === 'working' && Date.now() - new Date(t.updated_at || 0).getTime() < 10 * 60 * 1000).length; if (working) reasons.push(`${working} task turn(s) in flight`);
+      return json(res, 200, { busy: reasons.length > 0, reasons });
+    }
     if (req.method === 'POST' && p === '/api/events/clear') { clearRecent(); return json(res, 200, { ok: true }); }
     if (req.method === 'GET') return serveStatic(res, p);
     res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('not found');
@@ -380,9 +413,13 @@ const uiClients = new Set(); // { sessionId, email, send }
 // 15 Nov: Aria changed Talk Settings (talk_settings tool) — refresh the drawer on every open console.
 subscribe((ev) => {
   if (ev.type !== 'settings.changed') return;
+  // 16 Nov: every change goes in the settings change log, so the next call can open with "what changed".
+  const label = ev.what === 'test_dial' ? `test-dial ${ev.enabled ? 'ON → ' + (ev.number || '') : 'OFF'}` : `${ev.what === 'bots' ? 'chatbot' : ev.what === 'mcp' ? 'MCP server' : ev.what} ${String(ev.action || '').replace(/_.*/, '')} ${ev.name || ev.id || ''}`.trim();
+  recordChange({ what: ev.what, label, by: ev.by || (ev.sessionId ? 'aria' : 'console') });
   if (ev.what === 'bots') for (const c of uiClients) c.send({ kind: 'bots', bots: publicBots() });
   else if (ev.what === 'mcp') { for (const c of uiClients) c.send({ kind: 'mcp', servers: publicServers() }); warmMcp(); }
   else if (ev.what === 'test_dial') for (const c of uiClients) c.send({ kind: 'test_dial', ...getTestTarget(c.sessionId) });
+  else if (ev.what === 'ambience' || ev.what === 'language') for (const c of uiClients) c.send({ kind: 'settings', ...getSettings() });
 });
 onProfileChange(({ email, text, remember, sourceSession }) => {
   for (const c of uiClients) {
@@ -410,7 +447,7 @@ uiWss.on('connection', (ws, req) => {
   const unsub = subscribe((ev) => { if (forSession(ev)) send({ kind: 'event', event: ev }); else if (forWatched(ev)) send({ kind: 'event', event: { ...ev, watched: true } }); });
   // test_dial rides on hello: the SERVER is the source of truth for the redirect (13 Nov — consoles
   // used to replay their own saved switch on every connect, so a fresh browser profile DISARMED it).
-  send({ kind: 'hello', sessionId, harness_url: harnessUrl('navigator'), conductor_url: conductorUrl(), team: roster(), bots: listBots(), mcp: listServers(), test_dial: getTestTarget(sessionId) });
+  send({ kind: 'hello', sessionId, harness_url: harnessUrl('navigator'), conductor_url: conductorUrl(), team: roster(), bots: listBots(), mcp: listServers(), test_dial: getTestTarget(sessionId), settings: getSettings() });
   // Push the current browser frame so a freshly opened console is not staring at a black panel,
   // and the current tab list so the tab strip restores (sent directly: emitTabs dedupes repeats).
   peekSession(sessionId)?.tab?.frame().catch(() => {});

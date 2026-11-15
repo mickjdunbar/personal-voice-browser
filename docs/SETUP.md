@@ -79,7 +79,8 @@ Zapier (optional): put your MCP server URL in `.mcp-servers.json` (copy the shap
 Three terminals:
 
 ```bash
-npm run dev                              # the app: http://localhost:3005   (node --watch src/app.js)
+npm run dev                              # the app: http://localhost:3005   (scripts/dev.mjs: restarts on src/ changes,
+                                         #   but WAITS while a call / IVR map / task turn is live; `rs` + Enter = restart now)
 ngrok http --url=your-domain.ngrok.app 3005
 npm run register                         # creates/updates the jambonz application → wss://your-domain/ws?token=…
 ```

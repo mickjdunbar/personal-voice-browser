@@ -72,12 +72,16 @@ src/agent/persona.js        navigator + S2S personas (same person)
 src/browser/                Playwright wrapper, in-page snapshot (numbered refs, items/cards), tools
 src/kb/                     markdown docs → chunks → Qdrant (+ BM25/cosine fallback); SOP router
 src/observability/store.js  Upstash Redis REST sink (turn records, sessions, daily counters) + memory fallback
-src/events.js               console feed (replay buffer + live), src/sentiment.js lexicon scorer
+src/events.js               console feed (replay buffer + live) + logs/events-YYYY-MM-DD.jsonl (/api/events?day=…)
+src/settings.js             runtime settings (ambience mix, call language) — Talk Settings card, Aria's talk_settings, /api/settings
+src/conductor/transcript.js one transcript line per spoken item (OpenAI item ids / Gemini synthetic), greetings.js the opening cases
+src/phone/dialCap.js        sliding-window cap on real outbound dials (per session + total); src/agent/webClient.js the settings gate
 sops/*.md                   10 facts-only SOPs (frontmatter: triggers, sites, always, priority)
 knowledge/*.md              site playbooks (Uber Eats, Bing/Wikipedia, AU sites), preferences, FAQ
-public/                     the console (no build step; jambonz client SDK + /ui WebSocket)
-scripts/                    register-app, route-number, call, smoke, export-kb
-tests/                      node:test (20 tests: kb, lanes, tools gate, protocol, observability)
+public/js/                  the console, in ordered classic scripts sharing one scope (no build step; jambonz client SDK + /ui WebSocket)
+scripts/                    dev (restart-safe watcher), register-app, route-number, call, smoke, export-kb
+tests/ + test/              node:test — kb, lanes, tools gate, protocol, observability, greetings, transcript folding,
+                            small talk, web-client gate, dial cap, settings; test/e2e runs headless against a live :3005
 ```
 
 ## Run it (localhost dev)
@@ -86,7 +90,7 @@ tests/                      node:test (20 tests: kb, lanes, tools gate, protocol
 npm install
 npx playwright install chromium         # once
 cp .env.example .env                    # GEMINI_API_KEY, JAMBONZ_*, PUBLIC_HOST, WS_SECRET
-./start.sh                              # preflight + node --watch; http://localhost:3005 (headed Chromium opens)
+./start.sh                              # preflight + restart-safe watcher; http://localhost:3005 (headed Chromium opens)
                                         #   --bg / --stop / --status / --headless / --once / --port N
 ngrok http --url=mick.au.ngrok.io 3005  # in another shell (start.sh never starts ngrok)
 npm run register                        # creates/updates the jambonz app → wss://mick.au.ngrok.io/ws?token=…

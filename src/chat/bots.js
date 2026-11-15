@@ -69,9 +69,14 @@ function load() {
 }
 
 function persist(list) {
+  try { if (fs.existsSync(STORE)) fs.copyFileSync(STORE, STORE + '.bak'); } catch { /* best effort — the previous registry, for a manual undo */ }
   try { fs.writeFileSync(STORE, JSON.stringify(list, null, 2)); }
   catch (err) { logger.warn(`could not write ${STORE}: ${err.message}`); }
 }
+
+/** 16 Nov: raw copy of the registry (secrets included — in-memory only) so talk_settings can undo a change. */
+export function snapshotBots() { return registry.map((x) => ({ ...x })); }
+export function restoreBots(snap) { registry = Array.isArray(snap) ? snap.map((x) => ({ ...x })) : []; persist(registry); return listBots(); }
 
 export function listBots() {
   return registry.map((b) => ({ id: b.id, name: b.name || b.id, provider: b.provider }));

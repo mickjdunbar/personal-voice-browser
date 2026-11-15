@@ -9,7 +9,8 @@
   },
   "scripts": {
     "start": "node src/app.js",
-    "dev": "node --watch src/app.js",
+    "dev": "node scripts/dev.mjs",
+    "dev:watch": "node --watch src/app.js",
     "test": "node --test",
     "smoke": "node scripts/smoke.mjs",
     "tunnel": "ngrok http --url=mick.au.ngrok.io 3005",
