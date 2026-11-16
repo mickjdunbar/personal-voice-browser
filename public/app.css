@@ -837,8 +837,14 @@ body:has(.assistant-orb[data-state="muted"]){--room:color-mix(in srgb,var(--bad)
 /* Chat-head sizing (10 Nov): Huey ~35% smaller than the in-card size, and the TAP TO TALK label
    pulled ~50% closer to her feet; the controls follow her up. */
 .orb-float .orb-huey{width:80px}
-.orb-float .orb-label{bottom:-24px}
-.orb-float .call-controls{margin-top:28px} /* clear of the orb's absolute label */
+.orb-float .orb-label{bottom:-32px}
+.orb-float .call-controls{margin-top:36px} /* clear of the orb's absolute label */
+/* 17 Nov: the working / listening / muted rings were sized for the 122px Huey (188px aura, 94px comet
+   orbit) and overlapped the call + mute buttons under the 80px chat-head. Scaled to the chat-head, and
+   the label sits just under the ring instead of across it. */
+.orb-float .orb-aura{width:104px;height:104px}
+.orb-float .orb-spin{--orb-r:46px}
+.orb-float .assistant-orb[data-state="working"] .orb-aura::after{inset:10px}
 .orb-float.dragging{cursor:grabbing}
 .orb-float.dragging .orb-huey,.orb-float.dragging .orb-aura{animation-play-state:paused}
 /* The team card is now just an invisible anchor — no border, no panel, no heading on the web. */
