@@ -239,6 +239,7 @@ function render(e) {
     }
     case 'phone.amd': ev('', `<b>📞 AMD</b> ${esc(e.type)}`, e.ts); break;
     case 'phone.probe': ev('shopper', `<b>❓ probe</b> person or assistant? (tie after ${e.turns} turns)`, e.ts); break;
+    case 'phone.contact': ev('shopper', `<b>📒 contact</b> “${esc(e.asked)}” → ${esc(e.matched)}${e.note ? ' (' + esc(e.note) + ')' : ''}`, e.ts); break; // 17 Nov: which book entry a spoken name resolved to
     case 'phone.ask': ev('shopper', `<b>📞 ask-call</b> → ${esc(e.name || '')} <code>${esc(fmtPhone(e.to))}</code>: “${esc((e.question || '').slice(0, 60))}”`, e.ts); break;
     case 'phone.answer': ev(e.answer ? 'ok' : '', `<b>📞 answer</b> “${esc((e.answer || '(none)').slice(0, 70))}”`, e.ts); phoneLog.push({ at: Date.now(), kind: 'answer', callSid: e.callSid || '', name: e.name || '', text: e.answer || '', transcript: Array.isArray(e.transcript) ? e.transcript : [] }); break;
     // 13 Nov: the whole outbound leg once it ends (booking + relayed follow-ups) replaces the
