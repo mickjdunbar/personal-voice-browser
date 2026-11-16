@@ -19,6 +19,7 @@ import { completeText } from '../llm/client.js';
 import { createLogger } from '../logger.js';
 import { effectiveDial } from './testTarget.js';
 import { normalizeE164 } from './ask.js';
+import { callOptions, trackDial, describeDialFailure, timeoutHint, isAuShortNumber } from './callStatus.js'; // 16 Nov
 import { recognizer, configVerb, sayVerb, hangupVerb } from '../conductor/verbs.js';
 
 const logger = createLogger('IvrMap');
@@ -107,7 +108,7 @@ export function ivrMapStatus(taskId) {
     const left = pendingPaths(m).length;
     const state = m.status === 'running' ? `RUNNING now (call ${m.calls} of up to ${m.max_calls}, ${left} branch${left === 1 ? '' : 'es'} queued)`
       : m.status === 'done' ? `finished (${explored} points over ${m.calls} calls)`
-        : `NOT running — ${m.status}${m.error ? ` (${m.error})` : ''} after ${m.calls} call${m.calls === 1 ? '' : 's'}, ${explored} points mapped, ${left} branch${left === 1 ? '' : 'es'} never rung${left ? ' → it can be resumed with resume_ivr_map' : ''}`;
+        : `NOT running — ${m.status}${m.error ? ` (${m.error})` : ''} after ${m.calls} call${m.calls === 1 ? '' : 's'}, ${explored} points mapped, ${left} branch${left === 1 ? '' : 'es'} never rung${left ? ' → it can be resumed with resume_ivr_map' : ''}${m.status === 'failed' && explored <= 1 ? ' → the NUMBER could not be reached: to try another number (the business\'s local landline — look it up on the web if the owner has not given one) call map_ivr with it; phone_someone is NOT for mapping' : ''}`;
     return `• ${m.name} (${m.to}, map_id ${m.id}): ${state}${m.page ? ` · page ${m.page}` : ''}`;
   }).join('\n');
 }
@@ -157,7 +158,12 @@ export async function startIvrMap({ to, name = '', maxDepth = 3, maxCalls = 20, 
   } catch (err) { logger.warn(`task for map failed: ${err.message}`); }
   touch(m);
   const where = m.redirected ? ` ⚠ the test-dial redirect is ON for this session, so I'm actually ringing the test number ${m.dialed}, not ${num}.` : '';
-  await note(m, `🗺️ Mapping the phone menu on ${num}${label !== num ? ` (${label})` : ''}: up to ${m.max_depth} levels deep and ${m.max_calls} calls. I ring once per branch, listen to the whole prompt, press each option in turn, and post what I find here as I go.${where}`);
+  // 16 Nov: a finished map of the same business is worth a mention (HCF was mapped on its landline on 14 Nov);
+  // and a 13 / 1300 / 1800 number is usually refused by the trunk's carrier — say so before the first dial.
+  const earlier = [...maps.values()].filter((x) => x.id !== id && x.status === 'done' && x.name.toLowerCase() === label.toLowerCase()).sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+  const seen = earlier ? ` (I already have a finished map of ${earlier.name} on ${earlier.to} from ${new Date(earlier.created_at).toLocaleDateString('en-AU')}${earlier.page ? `: ${earlier.page}` : ''})` : '';
+  const shortWarn = isAuShortNumber(m.dialed) ? ' ⚠ That is an Australian 13 / 1300 / 1800 number — this trunk\'s carrier usually refuses those; if the first call fails, give me the business\'s local landline.' : '';
+  await note(m, `🗺️ Mapping the phone menu on ${num}${label !== num ? ` (${label})` : ''}: up to ${m.max_depth} levels deep and ${m.max_calls} calls. I ring once per branch, listen to the whole prompt, press each option in turn, and post what I find here as I go.${where}${seen}${shortWarn}`);
   crawl(m).catch((err) => { logger.error(`map ${id} crashed: ${err.message}`); m.status = 'failed'; m.error = err.message; touch(m); note(m, `✗ The map stopped: ${err.message}`); });
   return { ok: true, map: pub(m) };
 }
@@ -192,18 +198,25 @@ async function crawl(m) {
 async function exploreNode(m, node) {
   const from = config.phoneAsk.fromNumber || config.jambonz.fromNumber;
   const legKey = `${m.id}|${node.path}`;
+  let unwatch = () => {};
   const done = new Promise((resolve) => {
-    const timer = setTimeout(() => { legs.delete(legKey); resolve({ error: 'no leg answered within the time limit' }); }, 75000 + m.call_cap_ms);
-    legs.set(legKey, { resolve: (r) => { clearTimeout(timer); legs.delete(legKey); resolve(r); } });
+    const timer = setTimeout(() => { legs.delete(legKey); resolve({ error: `no leg answered within the time limit${timeoutHint(m.dialed)}` }); }, 75000 + m.call_cap_ms);
+    legs.set(legKey, { resolve: (r) => { clearTimeout(timer); legs.delete(legKey); unwatch(); resolve(r); } });
   });
   try {
-    await jambonz('POST', `/Accounts/${config.jambonz.accountSid}/Calls`, {
+    const created = await jambonz('POST', `/Accounts/${config.jambonz.accountSid}/Calls`, {
       application_sid: config.jambonz.applicationSid, from,
       to: { type: 'phone', number: m.dialed.replace(/^\+/, '') },
       tag: { mode: 'ivrmap', mapId: m.id, path: node.path, session: IVRMAP_SESSION },
-      timeout: 40
+      timeout: 40,
+      ...callOptions() // 16 Nov: status webhooks → a refused dial fails the leg NOW, with the SIP cause
     });
-    logger.info(`map ${m.id}: call ${m.calls} -> ${m.dialed} path="${node.path || '(root)'}"`);
+    const sid = created?.sid || created?.call_sid || '';
+    if (sid) {
+      node.call_sid = sid;
+      unwatch = trackDial(sid, (st) => legs.get(legKey)?.resolve({ error: describeDialFailure(st, m.dialed), sip: st.sip }));
+    }
+    logger.info(`map ${m.id}: call ${m.calls} -> ${m.dialed} path="${node.path || '(root)'}"${sid ? ` sid ${sid.slice(0, 8)}…` : ''}`);
   } catch (err) {
     legs.get(legKey)?.resolve({ error: err.message });
     node.kind = 'error'; node.ended = `could not place the call: ${err.message}`; node.explored = true; touch(m);
@@ -438,7 +451,8 @@ async function finalize(m) {
     if (m.taskId && svg) store.attachMedia(m.taskId, { svg, caption: `IVR map of ${m.name} — ${explored.length} points, ${menus} menus, ${m.calls} calls${unexplored ? `, ${unexplored} option${unexplored === 1 ? '' : 's'} left unexplored` : ''}`, kind: 'sketch' });
   } catch (err) { logger.warn(`map ${m.id}: svg not attached: ${err.message}`); }
   const left = m.status === 'done' ? 0 : pendingPaths(m).length;
-  await note(m, `${m.status === 'done' ? '✅ Map complete' : `⚠ Map ${m.status}${m.error ? ` — ${m.error}` : ''}`}: ${explored.length} points over ${m.calls} call${m.calls === 1 ? '' : 's'}${unexplored ? ` (${unexplored} deeper option${unexplored === 1 ? '' : 's'} not rung — raise the depth or call budget to continue)` : ''}.${left ? `\n${left} branch${left === 1 ? '' : 'es'} ${left === 1 ? 'was' : 'were'} still to ring — say "resume the map" here and I'll carry on from where it stopped.` : ''}${m.page ? `\nFull map with every prompt transcript: ${m.page}` : ''}`);
+  const retry = m.status === 'failed' && explored.length <= 1 ? `\nGive me another number for them${isAuShortNumber(m.dialed) ? ' (their local landline, not the 13 / 1300 number)' : ''} and say "map it on that number" — I'll start a fresh map there.` : '';
+  await note(m, `${m.status === 'done' ? '✅ Map complete' : `⚠ Map ${m.status}${m.error ? ` — ${m.error}` : ''}`}: ${explored.length} points over ${m.calls} call${m.calls === 1 ? '' : 's'}${unexplored ? ` (${unexplored} deeper option${unexplored === 1 ? '' : 's'} not rung — raise the depth or call budget to continue)` : ''}.${left ? `\n${left} branch${left === 1 ? '' : 'es'} ${left === 1 ? 'was' : 'were'} still to ring — say "resume the map" here and I'll carry on from where it stopped.` : ''}${m.page ? `\nFull map with every prompt transcript: ${m.page}` : ''}${retry}`);
   if (m.taskId) { try { const store = await import('../tasks/store.js'); store.setStatus(m.taskId, 'waiting'); } catch { /* */ } }
   logger.info(`map ${m.id} ${m.status}: ${explored.length} nodes, ${m.calls} calls`);
 }

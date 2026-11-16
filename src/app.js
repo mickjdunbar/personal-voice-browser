@@ -45,6 +45,7 @@ import { getObservability } from './observability/store.js';
 import { subscribe, recentEvents, clearRecent, emitEvent, readEventLog, eventLogDays } from './events.js';
 import { getSettings, updateSettings, resetSettings, recordChange, LANGUAGES } from './settings.js'; // 16 Nov: ambience + language at runtime
 import { dialCounts } from './phone/dialCap.js';
+import { onStatusWebhook, statusHookUrl } from './phone/callStatus.js'; // 16 Nov: dial failures (SIP 403 on 13 numbers…) in real time
 import { roster } from './agent/team.js';
 import { appLogger as logger } from './logger.js';
 
@@ -210,6 +211,7 @@ const server = http.createServer(async (req, res) => {
         jambonz_applications: lastRegistration,
         live_calls: { harness: harness.calls.size, conductor: liveConductorCalls().length },
         dials_last_10min: dialCounts(), // 16 Nov: outbound-dial cap counters per session
+        dial_status_hook: statusHookUrl() ? 'on' : 'off (no public host)',
         settings: (() => { const s = getSettings(); return { language: s.language.code, ambience: s.ambience }; })(),
         // Open consoles per session — the auto-recap is built BY a console, so a run with none
         // attached (a scripted test) gets no recap unless the launcher opens one.
@@ -385,6 +387,15 @@ const server = http.createServer(async (req, res) => {
         } catch (err) { return json(res, 400, { error: err.message }); }
       }
       if (req.method === 'DELETE') { const r = resetSettings({ by: 'console' }); emitEvent('settings.changed', null, { what: 'ambience', action: 'reset', by: 'console', name: 'back to .env defaults' }); return json(res, 200, { ...r.settings, languages: LANGUAGES }); }
+    }
+    // 16 Nov: jambonz posts call-status webhooks here for every outbound dial we place (phone/callStatus.js) —
+    // the only way to learn that a dial was REFUSED (carrier 403 on an AU 13 number) rather than unanswered.
+    if (p === '/api/jambonz/status' && req.method === 'POST') {
+      if (config.wsSecret && url.searchParams.get('token') !== config.wsSecret) return json(res, 401, { error: 'bad token' });
+      const b = await readJson(req);
+      const st = onStatusWebhook(b || {});
+      if (st.status && st.status !== 'trying' && st.status !== 'ringing') logger.info(`dial status ${st.callSid.slice(0, 8)}… ${st.status}${st.sip ? ` (SIP ${st.sip} ${st.reason})` : ''}`);
+      return json(res, 200, { ok: true });
     }
     // 16 Nov: is anything live that a restart would kill? scripts/dev.mjs defers restarts while this says busy.
     if (req.method === 'GET' && p === '/api/busy') {

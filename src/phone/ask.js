@@ -10,6 +10,7 @@ import { bus, topic } from '../bus.js';
 import { createLogger } from '../logger.js';
 import { effectiveDial } from './testTarget.js';
 import { dialAllowed, recordDial } from './dialCap.js'; // 16 Nov: sliding-window cap on real dials
+import { callOptions, trackDial, describeDialFailure } from './callStatus.js'; // 16 Nov: refused dials fail fast
 
 const logger = createLogger('PhoneAsk');
 const pending = new Map(); // askId -> { question, name, onBehalfOf, to, startedAt }
@@ -96,17 +97,20 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
 
   try {
     recordDial(sessionId);
-    await jambonz('POST', `/Accounts/${config.jambonz.accountSid}/Calls`, {
+    const created = await jambonz('POST', `/Accounts/${config.jambonz.accountSid}/Calls`, {
       application_sid: config.jambonz.applicationSid,
       from,
       to: { type: 'phone', number: num.replace(/^\+/, '') },
       tag: { mode: 'ask', askId, session: sessionId },
       timeout: 40,
+      ...callOptions(),
       // 14 Nov: answering-machine detection — the first who-answered signal, at pickup
       // (amd_human_detected / amd_machine_detected / amd_tone_detected → /amd hook). PHONE_ASK_AMD=0 disables.
       ...(/^(0|false|off)$/i.test(process.env.PHONE_ASK_AMD || '') ? {} : { amd: { actionHook: '/amd', thresholdWordCount: 9, timers: { noSpeechTimeoutMs: 5000, decisionTimeoutMs: 15000, toneTimeoutMs: 20000, greetingCompletionTimeoutMs: 2000 } } })
     });
-    logger.info(`ask call -> ${num} (askId ${askId}): "${q.slice(0, 70)}"`);
+    const sid = created?.sid || created?.call_sid || '';
+    if (sid) trackDial(sid, (st) => { if (pending.has(askId)) resolveAsk(askId, { error: describeDialFailure(st, num), rejected: true, sip: st.sip }); });
+    logger.info(`ask call -> ${num} (askId ${askId}): "${q.slice(0, 70)}"${sid ? ` sid ${sid.slice(0, 8)}…` : ''}`);
   } catch (err) {
     bus.removeAllListeners(topic(askId, 'answer')); pending.delete(askId);
     return { error: `could not place the call: ${err.message}` };
