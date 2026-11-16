@@ -611,13 +611,26 @@ export class Navigator {
           // stacked 2-3 confirmations that played out of order, AFTER the person had already answered.
           // 13 Nov: the delegation line doubles as the READ-BACK ("…to ring Rogue Bistro and confirm a
           // table for four this Friday at 6:45 under Jordan") when the model supplies `readback`.
-          if (c.name === 'phone_someone' && !writer.text.trim()) { const rb = String(c.args?.readback || '').trim().replace(/[.!]+$/, ''); writer.write(`I've handed that to one of my team to ring ${c.args?.name || 'them'}${rb ? ` and ${rb}` : ''} — I'll let you know the moment I hear back.`); lastSpokenAt = Date.now(); }
+          // 17 Nov: the line is written AFTER the tool answers (the dial itself is delayed by leadMs, so it
+          // still leads the ring) and ONLY when a call is really under way. Before this, a "no number" result
+          // — which carries no `error` — was counted as a placed call: the turn took the phone shortcut and
+          // the owner heard "I've handed that to my team to ring Rick" while nothing was dialled.
+          const narrated = writer.text.trim().length > 0;
           result = await withBeat(() => this.runSpecialTool(c.name, c.args));
-          record.own_tools.push({ name: c.name, ok: !result?.error, ms: Date.now() - ts });
+          record.own_tools.push({ name: c.name, ok: !result?.error && !result?.need_number, ms: Date.now() - ts });
           const { page_state, ...summary } = result || {};
           this.emit('tool.result', { turn: this.turns, name: c.name, ms: Date.now() - ts, result: summary });
           this.history.push({ role: 'tool', tool_call_id: c.id, content: JSON.stringify(result) });
-          if (c.name === 'phone_someone' && !result?.error) phonePlaced = true;
+          if (c.name === 'phone_someone') {
+            const placed = Boolean(result?.ok && result?.status === 'calling');
+            if (placed && !narrated) { const rb = String(c.args?.readback || '').trim().replace(/[.!]+$/, ''); writer.write(`I've handed that to one of my team to ring ${c.args?.name || 'them'}${rb ? ` and ${rb}` : ''} — I'll let you know the moment I hear back.`); lastSpokenAt = Date.now(); }
+            if (placed) phonePlaced = true;
+            else if (!result?.in_progress && !(result?.need_number && /\b(no|don'?t have|haven'?t got|without)\b[^.]{0,40}\bnumber\b/i.test(writer.text))) { // the model already said it has no number: no nudge
+              const who = c.args?.name || 'them';
+              const why = result?.need_number ? `you have NO phone number for ${who}` : `the call could not be placed (${result?.error || 'unknown reason'})`;
+              this.history.push({ role: 'system', content: `NOTHING WAS DIALLED: ${why}.${narrated ? ' You already told the caller you were ringing them — correct that now.' : ''} In ONE short spoken line tell the caller plainly that ${result?.need_number ? `you don't have a number for ${who} and ask for it` : `the call to ${who} could not be placed and why`}. Never say "ringing", "handed to my team" or "I'll let you know" for a call that was not placed.` });
+            }
+          }
           continue;
         }
         // Visual feedback in the browser pane the moment the agent touches the screen — an overlay
@@ -995,11 +1008,16 @@ export class Navigator {
         ], params: { max_tokens: 60 } })).trim() || `${who} got back to me and said: ${r.answer}.`;
       } catch { text = `${who} got back to me and said: ${r.answer}.`; }
     } else {
-      text = r?.dropped ? `${who} picked up, but the line dropped before they answered — want me to ring them back?` : `I couldn't get an answer from ${who} just now${r?.timed_out ? " — they didn't pick up" : ''}.`;
+      // 17 Nov: say WHY. A refused dial (carrier 403, barred number) used to come out as "couldn't get an
+      // answer", so Aria offered to "try again in a bit" for a number that can never connect.
+      text = r?.dropped ? `${who} picked up, but the line dropped before they answered — want me to ring them back?`
+        : r?.rejected ? `I couldn't ring ${who} — ${r.error}. Ringing again won't help; a different number for them would.`
+          : r?.timed_out ? `I couldn't get an answer from ${who} just now — they didn't pick up.`
+            : `I couldn't get an answer from ${who} just now${r?.error ? ` — ${r.error}` : ''}.`;
     }
     // Shared context: keep the result in the conversation so follow-ups ("order that then") have it.
-    this.history.push({ role: 'assistant', content: r && !r.error ? `(Phoned ${who} about "${question}" — they said: ${r.answer})` : `(Tried to phone ${who} — no answer)` });
-    this.emit('phone.result', { name: who, answer: r?.answer, error: r?.error, timed_out: r?.timed_out, to: r?.to, redirected: r?.redirected, real: r?.real });
+    this.history.push({ role: 'assistant', content: r && !r.error ? `(Phoned ${who} about "${question}" — they said: ${r.answer})` : `(Tried to phone ${who} — ${r?.rejected ? `the call was REFUSED: ${r.error}; do not offer to retry the same number` : r?.error || 'no answer'})` });
+    this.emit('phone.result', { name: who, answer: r?.answer, error: r?.error, timed_out: r?.timed_out, rejected: r?.rejected, to: r?.to, redirected: r?.redirected, real: r?.real });
     // Spoken relays are always ARIA's voice to the caller.
     this.emit('agent.said', { turn: this.turns, text, lane: 'phone', agent: { id: HOST.id, name: HOST.name, title: HOST.title, color: HOST.color }, unprompted: true, async: true });
     try { this.liveSay?.(text); } catch (err) { this.log.warn(`relay say failed: ${err.message}`); }
