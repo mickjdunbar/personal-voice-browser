@@ -226,10 +226,10 @@ function render(e) {
       break;
     }
     case 'team.cancelled': clearWorkers(); renderTeam(currentAgent); ev('', `<b>👥 team stopped</b> ${esc(e.reason || '')}`, e.ts); break;
-    case 'phone.request': addMsg('phoneout', e.question, '📞 → ' + (e.name || 'them'), ''); ev('shopper', `<b>📞 calling ${esc(e.name || '')}</b> “${esc((e.question || '').slice(0, 70))}”`, e.ts); phoneLog.push({ at: Date.now(), kind: 'request', name: e.name || '', text: e.question || '' }); break;
+    case 'phone.request': { const num = dialLine(e); addMsg('phoneout', e.question, '📞 → ' + (e.name || 'them') + (num ? ' · ' + fmtPhone(e.dialed || e.to) : ''), e.redirected ? `TEST-DIAL redirect is ON — ${e.name || 'their'} real number ${fmtPhone(e.real || e.to)} is not being rung` : ''); ev('shopper', `<b>📞 calling ${esc(e.name || '')}</b> ${num ? '<code>' + esc(num) + '</code> ' : ''}“${esc((e.question || '').slice(0, 70))}”`, e.ts); phoneLog.push({ at: Date.now(), kind: 'request', name: e.name || '', number: num, text: e.question || '' }); break; }
     case 'phone.result':
-      if (e.error) { addMsg('phonein err', e.error, '📞 ' + (e.name || 'call') + ' — no answer', ''); ev('bad', `<b>📞 ${esc(e.name || 'call')} —</b> ${esc(e.error)}`, e.ts); phoneLog.push({ at: Date.now(), kind: 'error', name: e.name || '', text: e.error }); }
-      else { addMsg('phonein', e.answer, '📞 ' + (e.name || 'they') + ' said', e.relayed ? 'heard live on the call' : ''); ev('ok', `<b>📞 ${esc(e.name || 'they')} said</b> “${esc((e.answer || '').slice(0, 70))}”${e.relayed ? ' · heard live' : ''}`, e.ts); }
+      if (e.error) { const num = dialLine(e); addMsg('phonein err', e.error, '📞 ' + (e.name || 'call') + ' — no answer', num); ev('bad', `<b>📞 ${esc(e.name || 'call')}${num ? ' <code>' + esc(num) + '</code>' : ''} —</b> ${esc(e.error)}`, e.ts); phoneLog.push({ at: Date.now(), kind: 'error', name: e.name || '', number: num, text: e.error }); }
+      else { const num = dialLine(e); addMsg('phonein', e.answer, '📞 ' + (e.name || 'they') + ' said', [num, e.relayed ? 'heard live on the call' : ''].filter(Boolean).join(' · ')); ev('ok', `<b>📞 ${esc(e.name || 'they')} said</b>${num ? ' <code>' + esc(num) + '</code>' : ''} “${esc((e.answer || '').slice(0, 70))}”${e.relayed ? ' · heard live' : ''}`, e.ts); }
       break;
     case 'phone.answered_by': {
       const icon = { human: '🙂', agent: '🤖', ivr: '🔢', voicemail: '📼' }[e.kind] || '❓';
@@ -239,7 +239,7 @@ function render(e) {
     }
     case 'phone.amd': ev('', `<b>📞 AMD</b> ${esc(e.type)}`, e.ts); break;
     case 'phone.probe': ev('shopper', `<b>❓ probe</b> person or assistant? (tie after ${e.turns} turns)`, e.ts); break;
-    case 'phone.ask': ev('shopper', `<b>📞 ask-call</b> → ${esc(e.name || e.to || '')}: “${esc((e.question || '').slice(0, 60))}”`, e.ts); break;
+    case 'phone.ask': ev('shopper', `<b>📞 ask-call</b> → ${esc(e.name || '')} <code>${esc(fmtPhone(e.to))}</code>: “${esc((e.question || '').slice(0, 60))}”`, e.ts); break;
     case 'phone.answer': ev(e.answer ? 'ok' : '', `<b>📞 answer</b> “${esc((e.answer || '(none)').slice(0, 70))}”`, e.ts); phoneLog.push({ at: Date.now(), kind: 'answer', callSid: e.callSid || '', name: e.name || '', text: e.answer || '', transcript: Array.isArray(e.transcript) ? e.transcript : [] }); break;
     // 13 Nov: the whole outbound leg once it ends (booking + relayed follow-ups) replaces the
     // first-outcome transcript on that call's entry, so the recap shows the full venue conversation.

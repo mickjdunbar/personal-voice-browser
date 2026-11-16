@@ -34,6 +34,16 @@ const SESSION = new URLSearchParams(location.search).get('session') || 'main';
 const AGENT_COLORS = { host: 'host', concierge: 'concierge', shopper: 'shopper', scout: 'scout', local: 'local' };
 const colorVar = (key) => `var(--${AGENT_COLORS[key] ? 'ag-' + key : key})`;
 const ms = (v) => (v == null ? '–' : `${Math.round(v)} ms`);
+// 17 Nov: phone numbers as people read them (+61 412 345 678 · +61 2 7230 5100 · +61 13 23 34); other countries in threes.
+const fmtPhone = (n) => {
+  const s = String(n || '').replace(/[^\d+]/g, ''); if (!s) return '';
+  const d = s.replace(/^\+/, '');
+  if (d.startsWith('61')) { const r = d.slice(2); if (/^4\d{8}$/.test(r)) return `+61 ${r.slice(0, 3)} ${r.slice(3, 6)} ${r.slice(6)}`; if (/^[2378]\d{8}$/.test(r)) return `+61 ${r[0]} ${r.slice(1, 5)} ${r.slice(5)}`; if (/^13\d{4}$/.test(r)) return `+61 13 ${r.slice(2, 4)} ${r.slice(4)}`; if (/^1[38]00\d{6}$/.test(r)) return `+61 ${r.slice(0, 4)} ${r.slice(4, 7)} ${r.slice(7)}`; }
+  if (d.startsWith('1') && d.length === 11) return `+1 ${d.slice(1, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
+  return `+${d.slice(0, 2)} ${d.slice(2).replace(/(\d)(?=(\d{3})+$)/g, '$1 ')}`; // +44 7 911 123 456
+};
+// "+61 412 345 678" or, with the test-dial redirect on, "TEST +61 340 621 105 (for +61 412 345 678)".
+const dialLine = (e) => { const d = fmtPhone(e.dialed || e.to); if (!d) return ''; return e.redirected ? `TEST-DIAL → ${d}${e.real ? ` (for ${fmtPhone(e.real)})` : ''}` : d; };
 const money = (n) => (n == null ? '–' : n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(3)}`);
 // Running cost of the CURRENT call under the brand title (web only): the feed's cost_total is the
 // session's cumulative spend, so the call's own cost = cumulative minus a baseline taken at call start.

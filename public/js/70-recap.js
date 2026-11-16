@@ -81,9 +81,9 @@ function shareHtml({ msgs, team, recs, stats, sms = [], bots = [], tasks = [], s
   let phoneSec = '';
   if (phones.length) {
     phoneSec = '<h2>Calls Aria made for the caller</h2>' + phones.map((p) => {
-      if (p.kind === 'request') return `<div class="rec"><div class="rh"><b>📞 Ringing ${E(p.name || 'them')}</b><span class="rt">${tm(p.at)}</span></div><p class="muted" style="margin:0">Asked to: ${E(p.text)}</p></div>`;
+      if (p.kind === 'request') return `<div class="rec"><div class="rh"><b>📞 Ringing ${E(p.name || 'them')}${p.number ? ' · ' + E(p.number) : ''}</b><span class="rt">${tm(p.at)}</span></div><p class="muted" style="margin:0">Asked to: ${E(p.text)}</p></div>`;
       if (p.kind === 'relay') return `<div class="bl${p.direction === 'answer' ? ' out' : ''}"><span class="blw">${p.direction === 'question' ? E(p.name || 'They') + ' asked' : p.direction === 'outcome' ? 'Outcome (they were still on the line)' : 'Relayed from the caller'}</span>${E(p.text)}</div>`;
-      if (p.kind === 'error') return `<div class="bl err"><span class="blw">📞 ${E(p.name || 'call')}</span>${E(p.text)}</div>`;
+      if (p.kind === 'error') return `<div class="bl err"><span class="blw">📞 ${E(p.name || 'call')}${p.number ? ' · ' + E(p.number) : ''}</span>${E(p.text)}</div>`;
       const conv = (p.transcript || []).map((t) => `<div class="b ${t.role === 'aria' ? 'agent' : 'phone'}"><span class="w">${t.role === 'aria' ? 'Aria' : E(p.name || 'Them')}</span>${E(t.text)}</div>`).join('');
       return `<div class="rec"><div class="rh"><b>📞 ${E(p.name || 'They')} — outcome</b><span class="rt">${tm(p.at)}</span></div><p style="margin:0 0 8px">${E(p.text || '(no answer)')}</p>${p.final ? `<p class="muted" style="margin:-4px 0 8px">After the follow-ups: ${E(p.final)}</p>` : ''}${conv ? `<div class="chat">${conv}</div>` : ''}</div>`;
     }).join('');

@@ -39,7 +39,7 @@ import { providerMeta } from '../chat/providers.js';
 import { mcpTools, mcpCapabilityText, zapierGatewayPresent, ZAPIER_RECIPE, setServers, publicServers, findServer, presetMeta, snapshotServers, restoreServers } from '../mcp/servers.js';
 import { listMcpTools, callMcpTool, probeServer } from '../mcp/client.js';
 import { placeAskCall, checkAskTarget } from '../phone/ask.js';
-import { getTestTarget, setTestTarget } from '../phone/testTarget.js';
+import { getTestTarget, setTestTarget, effectiveDial } from '../phone/testTarget.js';
 import { memoryDigest } from './memorist.js';
 import { createLogger } from '../logger.js';
 
@@ -934,14 +934,16 @@ export class Navigator {
       if (!to || to.replace(/\D/g, '').length < 5) to = await resolveNumberFromKb(this.store, who);
       if (!to || to.replace(/\D/g, '').length < 5) { to = extractPhoneFromPage(this.tab?.last); if (to && !kind) kind = 'business'; }
       if (!kind) kind = 'person';
-      this.emit('phone.request', { to, name: who, question });
+      // 17 Nov: the console shows the number being rung — and, when the test-dial redirect is on, where the call REALLY goes.
+      const dial = to && to.replace(/\D/g, '').length >= 5 ? effectiveDial(this.sessionId, to) : null;
+      this.emit('phone.request', { to, name: who, question, dialed: dial ? dial.to : to, redirected: Boolean(dial?.redirected), real: dial?.redirected ? dial.real : undefined });
       if (!to || to.replace(/\D/g, '').length < 5) {
-        this.emit('phone.result', { name: who, error: 'no number' });
+        this.emit('phone.result', { name: who, error: 'no number', to });
         return { need_number: true, name: who, note: `You don't have a phone number for ${who}. Ask the caller for ${who}'s number (do NOT pretend to call), then call phone_someone again with it.` };
       }
       // Fail fast if we simply cannot make this call (bad number, feature off) — the agent says so now.
       const bad = checkAskTarget({ to, question });
-      if (bad) { this.emit('phone.result', { name: who, error: bad }); return { error: bad }; }
+      if (bad) { this.emit('phone.result', { name: who, error: bad, to }); return { error: bad }; }
       // Otherwise place the call in the BACKGROUND (a parallel task) and return at once, so the main
       // conversation is never blocked. The answer is relayed and shared when it comes (onPhoneAnswer).
       const agent = this.activeAgent;
@@ -975,7 +977,7 @@ export class Navigator {
     // but don't announce it a second time.
     if (r && !r.error && r.relayed) {
       this.history.push({ role: 'assistant', content: `(Phoned ${who} about "${question}" — outcome: ${r.answer}. The caller heard this live and could follow up on the call.)` });
-      this.emit('phone.result', { name: who, answer: r.answer, relayed: true });
+      this.emit('phone.result', { name: who, answer: r.answer, relayed: true, to: r.to, redirected: r.redirected, real: r.real });
       return;
     }
     // 13 Nov: a duplicate request while the first call is still ringing — nothing was dialled; the
@@ -997,7 +999,7 @@ export class Navigator {
     }
     // Shared context: keep the result in the conversation so follow-ups ("order that then") have it.
     this.history.push({ role: 'assistant', content: r && !r.error ? `(Phoned ${who} about "${question}" — they said: ${r.answer})` : `(Tried to phone ${who} — no answer)` });
-    this.emit('phone.result', { name: who, answer: r?.answer, error: r?.error, timed_out: r?.timed_out });
+    this.emit('phone.result', { name: who, answer: r?.answer, error: r?.error, timed_out: r?.timed_out, to: r?.to, redirected: r?.redirected, real: r?.real });
     // Spoken relays are always ARIA's voice to the caller.
     this.emit('agent.said', { turn: this.turns, text, lane: 'phone', agent: { id: HOST.id, name: HOST.name, title: HOST.title, color: HOST.color }, unprompted: true, async: true });
     try { this.liveSay?.(text); } catch (err) { this.log.warn(`relay say failed: ${err.message}`); }

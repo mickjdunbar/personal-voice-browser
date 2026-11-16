@@ -70,7 +70,7 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
   const num = normalizeE164(dial.to); // ALWAYS dial E.164 (+<country code>…)
   const q = String(question || '').trim();
   const pre = checkAskTarget({ to: num, question });
-  if (pre) return { error: pre };
+  if (pre) return { error: pre, to: num };
   const from = config.phoneAsk.fromNumber || config.jambonz.fromNumber;
   if (dial.redirected) logger.info(`TEST redirect: ${String(dial.real).replace(/\d(?=\d{2})/g, '•')} -> test number`);
 
@@ -78,7 +78,7 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
   // the same "ring the venue" again — TWO calls to the restaurant, two bookings. A second call to the
   // same number for the same session while the first is still in flight is never what anyone wants.
   const cap = dialAllowed(sessionId);
-  if (!cap.ok) { logger.warn(`dial cap: ${sessionId} refused (${cap.count} this session / ${cap.total} total in window)`); return { error: cap.error }; }
+  if (!cap.ok) { logger.warn(`dial cap: ${sessionId} refused (${cap.count} this session / ${cap.total} total in window)`); return { error: cap.error, to: num }; }
   const dupe = pendingAsksFor(sessionId).find((a) => a.to === num && Date.now() - a.startedAt < 5 * 60 * 1000);
   if (dupe) {
     logger.warn(`ask call to ${num} already in flight for ${sessionId} (${dupe.askId}) — not dialling again`);
@@ -92,7 +92,7 @@ export async function placeAskCall({ to, name, question, onBehalfOf, kind = 'per
     // 13 Nov: the timeout is EMITTED on the topic (not just resolved here) so the conductor hears it
     // and hangs the leg up — a silently removed listener left a 7-minute zombie leg to the venue.
     const timer = setTimeout(() => { if (pending.has(askId)) resolveAsk(askId, { error: 'no answer within the time limit', timed_out: true }); }, timeoutMs);
-    bus.once(topic(askId, 'answer'), (payload) => { clearTimeout(timer); pending.delete(askId); resolve({ name, ...payload }); });
+    bus.once(topic(askId, 'answer'), (payload) => { clearTimeout(timer); pending.delete(askId); resolve({ name, to: num, redirected: dial.redirected, real: dial.redirected ? dial.real : undefined, ...payload }); }); // 17 Nov: the console shows the number
   });
 
   try {
